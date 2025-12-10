@@ -40,6 +40,50 @@
 #search-content.hidden {
     display: none;
 }
+#edge-controls {
+    margin-bottom: 15px;
+    padding: 10px;
+    background: #f8f9fa;
+    border-radius: 4px;
+}
+#edge-controls label {
+    display: flex;
+    align-items: center;
+    margin-bottom: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #2c3e50;
+}
+#edge-controls label:last-child {
+    margin-bottom: 0;
+}
+#edge-controls input[type="checkbox"] {
+    margin-right: 8px;
+    cursor: pointer;
+}
+#edge-controls .edge-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+#edge-controls .edge-indicator {
+    width: 30px;
+    height: 3px;
+    display: inline-block;
+}
+#edge-controls .edge-indicator.let {
+    background: #bdc3c7;
+}
+#edge-controls .edge-indicator.implication {
+    background: #9b59b6;
+    background-image: repeating-linear-gradient(
+        90deg,
+        #9b59b6,
+        #9b59b6 5px,
+        transparent 5px,
+        transparent 10px
+    );
+}
 #search-input {
     width: 100%;
     padding: 8px;
