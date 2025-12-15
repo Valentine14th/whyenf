@@ -135,28 +135,28 @@ def create_let_graph(json_file, output_file):
     net = Network(height="900px", width="100%", directed=True, 
                   notebook=False, bgcolor="#ffffff", font_color="#333333")
     
-    # Configure physics for better layout and performance
+    # Configure physics for better layout and performance with minimal movement
     net.set_options("""
     {
       "physics": {
         "enabled": true,
         "barnesHut": {
-          "gravitationalConstant": -8000,
-          "centralGravity": 0.3,
-          "springLength": 200,
-          "springConstant": 0.04,
-          "damping": 0.6,
-          "avoidOverlap": 0.5
+          "gravitationalConstant": -5000,
+          "centralGravity": 0.1,
+          "springLength": 150,
+          "springConstant": 0.01,
+          "damping": 0.9,
+          "avoidOverlap": 0.2
         },
         "stabilization": {
           "enabled": true,
-          "iterations": 500,
+          "iterations": 1000,
           "updateInterval": 50
         },
-        "maxVelocity": 50,
-        "minVelocity": 0.75,
+        "maxVelocity": 15,
+        "minVelocity": 0.1,
         "solver": "barnesHut",
-        "timestep": 0.5
+        "timestep": 0.3
       },
       "nodes": {
         "font": {
@@ -170,7 +170,8 @@ def create_let_graph(json_file, output_file):
         "borderWidthSelected": 3,
         "shadow": {
           "enabled": false
-        }
+        },
+        "physics": true
       },
       "edges": {
         "arrows": {
