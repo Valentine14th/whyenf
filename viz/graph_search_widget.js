@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const cauByCauEdgesCheckbox = document.getElementById('show-caubycau-edges');
     const cauBySupEdgesCheckbox = document.getElementById('show-caubysup-edges');
     const showAllNeighborhoodEdgesCheckbox = document.getElementById('show-all-neighborhood-edges');
+    const edgeDirectionRadios = document.getElementsByName('edge-direction');
     
     const checkboxItems = dropdownList.querySelectorAll('.checkbox-item');
     const checkboxes = dropdownList.querySelectorAll('input[type="checkbox"]');
@@ -173,6 +174,15 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
+    // Edge direction radio handlers
+    edgeDirectionRadios.forEach(radio => {
+        radio.addEventListener('change', function() {
+            if (selectedNodes.size > 0) {
+                highlightNodes(); // Re-apply highlighting with new direction
+            }
+        });
+    });
+    
     // Filter dropdown based on search
     searchInput.addEventListener('input', function() {
         const filter = this.value.toLowerCase();
@@ -286,15 +296,36 @@ document.addEventListener('DOMContentLoaded', function() {
         const connectedNodeIds = new Set(matchingIds);
         const showAllEdges = showAllNeighborhoodEdgesCheckbox ? showAllNeighborhoodEdgesCheckbox.checked : false;
         
+        // Get selected edge direction
+        let edgeDirection = 'both';
+        edgeDirectionRadios.forEach(radio => {
+            if (radio.checked) edgeDirection = radio.value;
+        });
+        
         allEdges.forEach(edge => {
             // Skip edges hidden by type filter
             if (isEdgeHiddenByTypeFilter(edge)) return;
             
-            // If either endpoint is selected, add both endpoints to visible set
-            if (matchingIds.has(edge.from)) {
+            // Check direction filter
+            const isOutgoing = matchingIds.has(edge.from);
+            const isIncoming = matchingIds.has(edge.to);
+            
+            let directionMatch = false;
+            if (edgeDirection === 'both') {
+                directionMatch = isOutgoing || isIncoming;
+            } else if (edgeDirection === 'outgoing') {
+                directionMatch = isOutgoing;
+            } else if (edgeDirection === 'incoming') {
+                directionMatch = isIncoming;
+            }
+            
+            if (!directionMatch) return;
+            
+            // Add connected nodes to visible set
+            if (isOutgoing) {
                 connectedNodeIds.add(edge.to);
             }
-            if (matchingIds.has(edge.to)) {
+            if (isIncoming) {
                 connectedNodeIds.add(edge.from);
             }
         });
@@ -307,13 +338,30 @@ document.addEventListener('DOMContentLoaded', function() {
                 return { ...edge, hidden: true };
             }
             
+            // Check direction filter
+            const isOutgoing = matchingIds.has(edge.from);
+            const isIncoming = matchingIds.has(edge.to);
+            
+            let directionMatch = false;
+            if (edgeDirection === 'both') {
+                directionMatch = isOutgoing || isIncoming;
+            } else if (edgeDirection === 'outgoing') {
+                directionMatch = isOutgoing;
+            } else if (edgeDirection === 'incoming') {
+                directionMatch = isIncoming;
+            }
+            
+            if (!directionMatch) {
+                return { ...edge, hidden: true };
+            }
+            
             if (showAllEdges) {
                 // Show all edges where both endpoints are in the visible neighborhood
                 const edgeVisible = connectedNodeIds.has(edge.from) && connectedNodeIds.has(edge.to);
                 return { ...edge, hidden: !edgeVisible };
             } else {
                 // Show only edges directly connected to selected nodes
-                const edgeVisible = matchingIds.has(edge.from) || matchingIds.has(edge.to);
+                const edgeVisible = isOutgoing || isIncoming;
                 return { ...edge, hidden: !edgeVisible };
             }
         });
@@ -372,6 +420,19 @@ document.addEventListener('DOMContentLoaded', function() {
     checkboxes.forEach(cb => cb.checked = false);
     searchInput.value = '';
     searchResults.textContent = '';
+    
+    // Ensure all edge type toggles are checked on page load
+    if (letEdgesCheckbox) letEdgesCheckbox.checked = true;
+    if (implicationEdgesCheckbox) implicationEdgesCheckbox.checked = true;
+    if (cauByCauEdgesCheckbox) cauByCauEdgesCheckbox.checked = true;
+    if (cauBySupEdgesCheckbox) cauBySupEdgesCheckbox.checked = true;
+    
+    // Ensure "both" is selected for edge direction
+    edgeDirectionRadios.forEach(radio => {
+        if (radio.value === 'both') {
+            radio.checked = true;
+        }
+    });
     
     // Initialize display
     updateSelectedDisplay();

@@ -353,8 +353,6 @@ def create_let_graph(json_file, output_file, mode="original"):
         for defn in definitions:
             let_id = f"LET_{defn['name']}"
             label = f"{defn['name']}"
-            if defn['type']:
-                label += f"\n({defn['type']})"
             
             # Add predicates list to hover title
             predicates_list = sorted(defn['predicates'])
@@ -523,6 +521,21 @@ def create_let_graph(json_file, output_file, mode="original"):
                     <input type="checkbox" id="show-all-neighborhood-edges" />
                     <span class="edge-label">Show all edges in neighborhood</span>
                 </label>
+                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #c8e6c9;">
+                    <div style="font-size: 11px; color: #555; margin-bottom: 5px;">Edge direction:</div>
+                    <label style="margin-bottom: 3px;">
+                        <input type="radio" name="edge-direction" value="both" checked />
+                        <span class="edge-label">Both</span>
+                    </label>
+                    <label style="margin-bottom: 3px;">
+                        <input type="radio" name="edge-direction" value="outgoing" />
+                        <span class="edge-label">Outgoing only</span>
+                    </label>
+                    <label style="margin-bottom: 3px;">
+                        <input type="radio" name="edge-direction" value="incoming" />
+                        <span class="edge-label">Incoming only</span>
+                    </label>
+                </div>
             </div>
             <input type="text" id="search-input" placeholder="Filter by name..." />
             <div id="dropdown-list">

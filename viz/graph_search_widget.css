@@ -9,6 +9,9 @@
     box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     font-family: Arial, sans-serif;
     max-width: 400px;
+    max-height: calc(100vh - 40px);
+    display: flex;
+    flex-direction: column;
 }
 #search-header {
     display: flex;
@@ -36,6 +39,8 @@
 }
 #search-content {
     display: block;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 #search-content.hidden {
     display: none;
