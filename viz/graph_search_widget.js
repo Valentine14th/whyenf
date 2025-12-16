@@ -104,7 +104,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 connectedNodes.add(edge.to);
             }
             
-            return { ...edge, hidden: hidden };
+            // Disable physics for hidden edges so they don't affect layout
+            return { ...edge, hidden: hidden, physics: !hidden };
         });
         
         network.body.data.edges.update(updatedEdges);
@@ -335,7 +336,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Check if edge should be hidden by type filter
             const hiddenByTypeFilter = isEdgeHiddenByTypeFilter(edge);
             if (hiddenByTypeFilter) {
-                return { ...edge, hidden: true };
+                return { ...edge, hidden: true, physics: false };
             }
             
             // Check direction filter
@@ -352,17 +353,17 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             if (!directionMatch) {
-                return { ...edge, hidden: true };
+                return { ...edge, hidden: true, physics: false };
             }
             
             if (showAllEdges) {
                 // Show all edges where both endpoints are in the visible neighborhood
                 const edgeVisible = connectedNodeIds.has(edge.from) && connectedNodeIds.has(edge.to);
-                return { ...edge, hidden: !edgeVisible };
+                return { ...edge, hidden: !edgeVisible, physics: edgeVisible };
             } else {
                 // Show only edges directly connected to selected nodes
                 const edgeVisible = isOutgoing || isIncoming;
-                return { ...edge, hidden: !edgeVisible };
+                return { ...edge, hidden: !edgeVisible, physics: edgeVisible };
             }
         });
         
