@@ -2,11 +2,13 @@
 """
 Generate PyVis graph showing LET definition dependencies from MFOTL formula JSON.
 Each predicate node is used only once and reused across different definitions.
+Supports both original and normal mode for different JSON formats.
 """
 
 import json
 import sys
 import os
+import argparse
 import webbrowser
 from pyvis.network import Network
 
@@ -14,28 +16,24 @@ from pyvis.network import Network
 def extract_predicates(node, predicates_set):
     """Recursively extract all predicate names from a formula node."""
     if not isinstance(node, dict):
+        # If it's a list, recurse into it
+        if isinstance(node, list):
+            for item in node:
+                extract_predicates(item, predicates_set)
         return
     
+    # Check if this is a Predicate constructor
     if node.get("constructor") == "Predicate":
         predicates_set.add(node["name"])
-        return
+        # Don't return - continue to check if there are nested predicates in args
     
-    # Recurse through common formula structures
-    if "formula" in node:
-        extract_predicates(node["formula"], predicates_set)
-    if "body" in node:
-        extract_predicates(node["body"], predicates_set)
-    if "arg" in node:  # For Neg, Prev, Next, etc.
-        extract_predicates(node["arg"], predicates_set)
-    if "args" in node and isinstance(node["args"], list):
-        for arg in node["args"]:
-            extract_predicates(arg, predicates_set)
-    if "left" in node:
-        extract_predicates(node["left"], predicates_set)
-    if "right" in node:
-        extract_predicates(node["right"], predicates_set)
-    if "in" in node:
-        extract_predicates(node["in"], predicates_set)
+    # Recursively traverse all values in the dictionary
+    for key, value in node.items():
+        if isinstance(value, dict):
+            extract_predicates(value, predicates_set)
+        elif isinstance(value, list):
+            for item in value:
+                extract_predicates(item, predicates_set)
 
 
 def extract_let_definitions(node, definitions=None):
@@ -82,6 +80,12 @@ def extract_implications(node, implications=None):
     if implications is None:
         implications = []
     
+    # Handle list input
+    if isinstance(node, list):
+        for item in node:
+            extract_implications(item, implications)
+        return implications
+    
     if not isinstance(node, dict):
         return implications
     
@@ -114,22 +118,105 @@ def extract_implications(node, implications=None):
     return implications
 
 
-def create_let_graph(json_file, output_file):
-    """Create PyVis graph from formula JSON showing LET definition dependencies."""
+def extract_let_definitions_normal(lets_array):
+    """Extract LET definitions from normal JSON format (from 'lets' array)."""
+    definitions = []
+    for let_def in lets_array:
+        let_name = let_def.get("e", "Unknown")
+        
+        # Extract predicates from the formula
+        predicates = set()
+        if "formula" in let_def:
+            extract_predicates(let_def["formula"], predicates)
+        
+        definitions.append({
+            "name": let_name,
+            "type": let_def.get("enftype", ""),
+            "predicates": predicates
+        })
+    
+    return definitions
+
+
+def extract_causality_rules(node, rules=None):
+    """Extract all CauByCau and CauBySup rules with predicates from filter and effects."""
+    if rules is None:
+        rules = []
+    
+    # Handle list input
+    if isinstance(node, list):
+        for item in node:
+            extract_causality_rules(item, rules)
+        return rules
+    
+    if not isinstance(node, dict):
+        return rules
+    
+    constructor = node.get("constructor")
+    if constructor in ["CauByCau", "CauBySup"]:
+        # Extract predicates from filter (inside "by" field)
+        filter_predicates = set()
+        if "by" in node and isinstance(node["by"], dict):
+            if "filter" in node["by"]:
+                extract_predicates(node["by"]["filter"], filter_predicates)
+        
+        # Extract predicates from effects (inside "by" field)
+        effects_predicates = set()
+        if "by" in node and isinstance(node["by"], dict):
+            if "effects" in node["by"]:
+                extract_predicates(node["by"]["effects"], effects_predicates)
+        
+        rules.append({
+            "type": constructor,
+            "filter": filter_predicates,
+            "effects": effects_predicates
+        })
+    
+    # Recursively search for causality rules
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if isinstance(value, dict):
+                extract_causality_rules(value, rules)
+            elif isinstance(value, list):
+                for item in value:
+                    if isinstance(item, dict):
+                        extract_causality_rules(item, rules)
+    
+    return rules
+
+
+def create_let_graph(json_file, output_file, mode="original"):
+    """Create PyVis graph from formula JSON showing LET definition dependencies or causality rules."""
     
     # Load JSON
     with open(json_file, 'r') as f:
         formula = json.load(f)
     
-    # Extract all LET definitions
-    definitions = extract_let_definitions(formula)
-    
-    print(f"Found {len(definitions)} LET definitions")
-    
-    # Extract all implications
-    implications = extract_implications(formula)
-    
-    print(f"Found {len(implications)} implications")
+    if mode == "normal":
+        # Normal mode: extract LET definitions from 'lets' field
+        definitions = []
+        if "lets" in formula:
+            definitions = extract_let_definitions_normal(formula["lets"])
+            print(f"Found {len(definitions)} LET definitions")
+        
+        # Extract causality rules and implications only from 'instrs' field
+        rules = []
+        implications = []
+        if "instrs" in formula:
+            rules = extract_causality_rules(formula["instrs"])
+            implications = extract_implications(formula["instrs"])
+        print(f"Found {len(rules)} causality rules (CauByCau and CauBySup)")
+        print(f"Found {len(implications)} implications")
+    else:
+        # Original mode: extract LET definitions
+        definitions = extract_let_definitions(formula)
+        print(f"Found {len(definitions)} LET definitions")
+        
+        # Extract all implications
+        implications = extract_implications(formula)
+        print(f"Found {len(implications)} implications")
+        
+        rules = []
     
     # Create network
     net = Network(height="900px", width="100%", directed=True, 
@@ -201,7 +288,7 @@ def create_let_graph(json_file, output_file):
     }
     """)
     
-    # Collect all unique predicates from LET definitions
+    # Collect all unique predicates from LET definitions (original mode only)
     let_predicates = set()
     for defn in definitions:
         let_predicates.update(defn["predicates"])
@@ -215,11 +302,22 @@ def create_let_graph(json_file, output_file):
         implication_predicates.update(imp["left"])
         implication_predicates.update(imp["right"])
     
+    # Collect all unique predicates from causality rules (normal mode)
+    causality_predicates = set()
+    for rule in rules:
+        causality_predicates.update(rule["filter"])
+        causality_predicates.update(rule["effects"])
+    
     # Only create predicate nodes for names that are NOT LET definitions
-    predicate_only_names = (let_predicates | implication_predicates) - let_definition_names
+    if mode == "normal":
+        predicate_only_names = (let_predicates | implication_predicates | causality_predicates) - let_definition_names
+    else:
+        predicate_only_names = (let_predicates | implication_predicates) - let_definition_names
     
     print(f"Found {len(let_predicates)} predicates in LET definitions")
     print(f"Found {len(implication_predicates)} predicates in implications")
+    if mode == "normal":
+        print(f"Found {len(causality_predicates)} predicates in causality rules")
     print(f"Found {len(let_definition_names)} LET definitions")
     print(f"Found {len(predicate_only_names)} unique predicate nodes (excluding LET definition names)")
     
@@ -227,15 +325,20 @@ def create_let_graph(json_file, output_file):
     for pred in predicate_only_names:
         in_lets = pred in let_predicates
         in_implications = pred in implication_predicates
+        in_causality = pred in causality_predicates
         
         # Build title based on where predicate appears
         title_parts = [f"Predicate: {pred}"]
-        if in_lets and in_implications:
-            title_parts.append("(Used in LET definitions and implications)")
-        elif in_lets:
-            title_parts.append("(Used in LET definitions)")
-        elif in_implications:
-            title_parts.append("(Used only in implications)")
+        locations = []
+        if in_lets:
+            locations.append("LET definitions")
+        if in_implications:
+            locations.append("implications")
+        if in_causality:
+            locations.append("causality rules")
+        
+        if locations:
+            title_parts.append(f"(Used in {' and '.join(locations)})")
         
         net.add_node(pred, 
                     label=pred, 
@@ -245,41 +348,86 @@ def create_let_graph(json_file, output_file):
                     font={"size": 14, "color": "#2c3e50"},
                     title="\n".join(title_parts))
     
-    # Add LET definition nodes (red boxes)
-    for defn in definitions:
-        let_id = f"LET_{defn['name']}"
-        label = f"{defn['name']}"
-        if defn['type']:
-            label += f"\n({defn['type']})"
-        
-        # Add predicates list to hover title
-        predicates_list = sorted(defn['predicates'])
-        hover_text = f"LET definition: {defn['name']}\nType: {defn['type']}\nUses {len(defn['predicates'])} predicates:\n"
-        hover_text += "\n".join(f"  • {p}" for p in predicates_list)
-        
-        net.add_node(let_id,
-                    label=label,
-                    color={"border": "#c0392b", "background": "#ec7063", "highlight": {"border": "#d68910", "background": "#f39c12"}},
-                    shape="box",
-                    size=30,
-                    font={"size": 15, "color": "#ffffff", "bold": True},
-                    shapeProperties={"borderRadius": 6},
-                    title=hover_text)
+    # Add LET definition nodes (red boxes) - when definitions exist
+    if len(definitions) > 0:
+        for defn in definitions:
+            let_id = f"LET_{defn['name']}"
+            label = f"{defn['name']}"
+            if defn['type']:
+                label += f"\n({defn['type']})"
+            
+            # Add predicates list to hover title
+            predicates_list = sorted(defn['predicates'])
+            hover_text = f"LET definition: {defn['name']}\nType: {defn['type']}\nUses {len(defn['predicates'])} predicates:\n"
+            hover_text += "\n".join(f"  • {p}" for p in predicates_list)
+            
+            net.add_node(let_id,
+                        label=label,
+                        color={"border": "#c0392b", "background": "#ec7063", "highlight": {"border": "#d68910", "background": "#f39c12"}},
+                        shape="box",
+                        size=30,
+                        font={"size": 15, "color": "#ffffff", "bold": True},
+                        shapeProperties={"borderRadius": 6},
+                        title=hover_text)
     
     # Add edges from LET definitions to their predicates
     edge_count = 0
-    for defn in definitions:
-        let_id = f"LET_{defn['name']}"
-        for pred in defn["predicates"]:
-            # Use LET node if predicate name matches a LET definition
-            pred_node = f"LET_{pred}" if pred in let_definition_names else pred
-            net.add_edge(let_id, pred_node, 
-                        color={"color": "#bdc3c7", "highlight": "#e67e22", "opacity": 0.6},
-                        width=2,
-                        title=f"{defn['name']} uses {pred}")
-            edge_count += 1
+    if len(definitions) > 0:
+        for defn in definitions:
+            let_id = f"LET_{defn['name']}"
+            for pred in defn["predicates"]:
+                # Use LET node if predicate name matches a LET definition
+                pred_node = f"LET_{pred}" if pred in let_definition_names else pred
+                net.add_edge(let_id, pred_node, 
+                            color={"color": "#bdc3c7", "highlight": "#e67e22", "opacity": 0.6},
+                            width=2,
+                            title=f"{defn['name']} uses {pred}")
+                edge_count += 1
+        
+        print(f"Created {edge_count} edges from LET definitions")
     
-    print(f"Created {edge_count} edges from LET definitions")
+    # Add edges from causality rules (normal mode only)
+    causality_edge_count = 0
+    if mode == "normal":
+        causality_edges = {}  # (filter_pred, effect_pred) -> (count, rule_types)
+        for rule in rules:
+            rule_type = rule["type"]
+            for filter_pred in rule["filter"]:
+                for effect_pred in rule["effects"]:
+                    # Use LET nodes if the predicate name matches a LET definition
+                    filter_node = f"LET_{filter_pred}" if filter_pred in let_definition_names else filter_pred
+                    effect_node = f"LET_{effect_pred}" if effect_pred in let_definition_names else effect_pred
+                    edge_key = (filter_node, effect_node)
+                    if edge_key not in causality_edges:
+                        causality_edges[edge_key] = {"count": 0, "types": set()}
+                    causality_edges[edge_key]["count"] += 1
+                    causality_edges[edge_key]["types"].add(rule_type)
+        
+        # Add edges to graph with weight based on count
+        for (filter_node, effect_node), data in causality_edges.items():
+            count = data["count"]
+            rule_types = ", ".join(sorted(data["types"]))
+            
+            # Scale width and opacity based on count
+            width = min(2 + (count - 1) * 0.5, 6)
+            opacity = min(0.6 + (count - 1) * 0.1, 0.95)
+            
+            # Different colors for different causality rule types
+            if data["types"] == {"CauByCau"}:
+                edge_color = "#27ae60"  # Green for CauByCau
+            elif data["types"] == {"CauBySup"}:
+                edge_color = "#3498db"  # Blue for CauBySup
+            else:
+                edge_color = "#9b59b6"  # Purple for mixed (both CauByCau and CauBySup)
+            
+            plural = "rules" if count > 1 else "rule"
+            net.add_edge(filter_node, effect_node,
+                        color={"color": edge_color, "highlight": "#f39c12", "opacity": opacity},
+                        width=width,
+                        title=f"Causality: {filter_node} → {effect_node}\n({count} {plural}: {rule_types})")
+            causality_edge_count += 1
+        
+        print(f"Created {causality_edge_count} unique edges from {len(rules)} causality rules")
     
     # Add edges from implications (left predicates -> right predicates)
     # Track edge counts to show weight
@@ -358,19 +506,22 @@ def create_let_graph(json_file, output_file):
         </div>
         <div id="search-content">
             <div id="edge-controls">
-                <label>
-                    <input type="checkbox" id="show-let-edges" checked />
-                    <span class="edge-label">
-                        <span class="edge-indicator let"></span>
-                        LET Definition Edges
-                    </span>
-                </label>
+                {'<label><input type="checkbox" id="show-let-edges" checked /><span class="edge-label"><span class="edge-indicator let"></span>LET Definition Edges</span></label>' if mode == "original" else ''}
+                {'<label><input type="checkbox" id="show-let-edges" checked /><span class="edge-label"><span class="edge-indicator" style="background: #bdc3c7;"></span>LET Edges</span></label>' if mode == "original" or (mode == "normal" and len(definitions) > 0) else ''}
                 <label>
                     <input type="checkbox" id="show-implication-edges" checked />
                     <span class="edge-label">
                         <span class="edge-indicator implication"></span>
                         Implication Edges
                     </span>
+                </label>
+                {'<label><input type="checkbox" id="show-caubycau-edges" checked /><span class="edge-label"><span class="edge-indicator" style="background: #27ae60;"></span>CauByCau Edges</span></label>' if mode == "normal" else ''}
+                {'<label><input type="checkbox" id="show-caubysup-edges" checked /><span class="edge-label"><span class="edge-indicator" style="background: #3498db;"></span>CauBySup Edges</span></label>' if mode == "normal" else ''}
+            </div>
+            <div id="selection-controls">
+                <label>
+                    <input type="checkbox" id="show-all-neighborhood-edges" />
+                    <span class="edge-label">Show all edges in neighborhood</span>
                 </label>
             </div>
             <input type="text" id="search-input" placeholder="Filter by name..." />
@@ -409,9 +560,14 @@ def create_let_graph(json_file, output_file):
     print(f"  Total unique predicate nodes: {len(predicate_only_names)}")
     print(f"  Total nodes in graph: {total_nodes}")
     print(f"  Total implications: {len(implications)}")
-    print(f"  LET definition edges: {edge_count}")
+    if mode == "original":
+        print(f"  LET definition edges: {edge_count}")
+    if mode == "normal":
+        print(f"  Total causality rules: {len(rules)}")
+        print(f"  Causality edges: {causality_edge_count}")
     print(f"  Implication edges: {implication_edge_count}")
-    print(f"  Average predicates per definition: {edge_count / len(definitions):.2f}")
+    if mode == "original" and len(definitions) > 0:
+        print(f"  Average predicates per definition: {edge_count / len(definitions):.2f}")
     
     # Find most used predicates
     predicate_usage = {}
@@ -429,14 +585,17 @@ def create_let_graph(json_file, output_file):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: python3 visualize_let_graph.py <input.json> <output.html>")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description='Generate PyVis graph from MFOTL formula JSON')
+    parser.add_argument('input', help='Input JSON file')
+    parser.add_argument('output', help='Output HTML file')
+    parser.add_argument('--normal', action='store_true', 
+                       help='Process normal mode JSON (with CauByCau/CauBySup instead of LET definitions)')
     
-    json_file = sys.argv[1]
-    output_file = sys.argv[2]
+    args = parser.parse_args()
     
-    html_file = create_let_graph(json_file, output_file)
+    mode = "normal" if args.normal else "original"
+    
+    html_file = create_let_graph(args.input, args.output, mode=mode)
     
     # Open in browser
     abs_path = os.path.abspath(html_file)

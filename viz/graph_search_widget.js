@@ -8,10 +8,36 @@ document.addEventListener('DOMContentLoaded', function() {
     const searchContent = document.getElementById('search-content');
     const letEdgesCheckbox = document.getElementById('show-let-edges');
     const implicationEdgesCheckbox = document.getElementById('show-implication-edges');
+    const cauByCauEdgesCheckbox = document.getElementById('show-caubycau-edges');
+    const cauBySupEdgesCheckbox = document.getElementById('show-caubysup-edges');
+    const showAllNeighborhoodEdgesCheckbox = document.getElementById('show-all-neighborhood-edges');
     
     const checkboxItems = dropdownList.querySelectorAll('.checkbox-item');
     const checkboxes = dropdownList.querySelectorAll('input[type="checkbox"]');
     let selectedNodes = new Set();
+    
+    // Helper function to check if an edge should be hidden by type filters
+    function isEdgeHiddenByTypeFilter(edge) {
+        const showLetEdges = letEdgesCheckbox ? letEdgesCheckbox.checked : true;
+        const showImplicationEdges = implicationEdgesCheckbox ? implicationEdgesCheckbox.checked : true;
+        const showCauByCauEdges = cauByCauEdgesCheckbox ? cauByCauEdgesCheckbox.checked : true;
+        const showCauBySupEdges = cauBySupEdgesCheckbox ? cauBySupEdgesCheckbox.checked : true;
+        
+        const edgeColor = edge.color && edge.color.color ? edge.color.color : edge.color;
+        const isImplicationEdge = edge.dashes && edge.dashes.length > 0;
+        const isCauByCauEdge = edgeColor === '#27ae60';
+        const isCauBySupEdge = edgeColor === '#3498db';
+        const isMixedCausalityEdge = edgeColor === '#9b59b6';
+        const isLetEdge = !isImplicationEdge && !isCauByCauEdge && !isCauBySupEdge && !isMixedCausalityEdge;
+        
+        if (isLetEdge && !showLetEdges) return true;
+        if (isImplicationEdge && !showImplicationEdges) return true;
+        if (isCauByCauEdge && !showCauByCauEdges) return true;
+        if (isCauBySupEdge && !showCauBySupEdges) return true;
+        if (isMixedCausalityEdge && (!showCauByCauEdges || !showCauBySupEdges)) return true;
+        
+        return false;
+    }
     
     // Clear all selections when network is ready
     network.once('stabilizationIterationsDone', function() {
@@ -33,8 +59,10 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Filter edges based on checkboxes
     function updateEdgeVisibility() {
-        const showLetEdges = letEdgesCheckbox.checked;
-        const showImplicationEdges = implicationEdgesCheckbox.checked;
+        const showLetEdges = letEdgesCheckbox ? letEdgesCheckbox.checked : true;
+        const showImplicationEdges = implicationEdgesCheckbox ? implicationEdgesCheckbox.checked : true;
+        const showCauByCauEdges = cauByCauEdgesCheckbox ? cauByCauEdgesCheckbox.checked : true;
+        const showCauBySupEdges = cauBySupEdgesCheckbox ? cauBySupEdgesCheckbox.checked : true;
         
         const edges = network.body.data.edges.get();
         const nodes = network.body.data.nodes.get();
@@ -45,14 +73,27 @@ document.addEventListener('DOMContentLoaded', function() {
         const updatedEdges = edges.map(edge => {
             let hidden = false;
             
-            // Check if edge is a LET edge (has dashes property undefined/false)
-            const isLetEdge = !edge.dashes || edge.dashes.length === 0;
-            const isImplicationEdge = edge.dashes && edge.dashes.length > 0;
+            // Identify edge type by color
+            const edgeColor = edge.color && edge.color.color ? edge.color.color : edge.color;
+            const isImplicationEdge = edge.dashes && edge.dashes.length > 0; // Purple dashed edges
+            const isCauByCauEdge = edgeColor === '#27ae60'; // Green edges
+            const isCauBySupEdge = edgeColor === '#3498db'; // Blue edges
+            const isMixedCausalityEdge = edgeColor === '#9b59b6'; // Purple edges
+            const isLetEdge = !isImplicationEdge && !isCauByCauEdge && !isCauBySupEdge && !isMixedCausalityEdge;
             
             if (isLetEdge && !showLetEdges) {
                 hidden = true;
             }
             if (isImplicationEdge && !showImplicationEdges) {
+                hidden = true;
+            }
+            if (isCauByCauEdge && !showCauByCauEdges) {
+                hidden = true;
+            }
+            if (isCauBySupEdge && !showCauBySupEdges) {
+                hidden = true;
+            }
+            if (isMixedCausalityEdge && (!showCauByCauEdges || !showCauBySupEdges)) {
                 hidden = true;
             }
             
@@ -118,26 +159,46 @@ document.addEventListener('DOMContentLoaded', function() {
 
     
     // Edge visibility toggle handlers
-    letEdgesCheckbox.addEventListener('change', updateEdgeVisibility);
-    implicationEdgesCheckbox.addEventListener('change', updateEdgeVisibility);
+    if (letEdgesCheckbox) letEdgesCheckbox.addEventListener('change', updateEdgeVisibility);
+    if (implicationEdgesCheckbox) implicationEdgesCheckbox.addEventListener('change', updateEdgeVisibility);
+    if (cauByCauEdgesCheckbox) cauByCauEdgesCheckbox.addEventListener('change', updateEdgeVisibility);
+    if (cauBySupEdgesCheckbox) cauBySupEdgesCheckbox.addEventListener('change', updateEdgeVisibility);
+    
+    // Selection mode toggle handler
+    if (showAllNeighborhoodEdgesCheckbox) {
+        showAllNeighborhoodEdgesCheckbox.addEventListener('change', function() {
+            if (selectedNodes.size > 0) {
+                highlightNodes(); // Re-apply highlighting with new mode
+            }
+        });
+    }
     
     // Filter dropdown based on search
     searchInput.addEventListener('input', function() {
         const filter = this.value.toLowerCase();
         
         // Get currently visible nodes based on edge toggles
-        const showLetEdges = letEdgesCheckbox.checked;
-        const showImplicationEdges = implicationEdgesCheckbox.checked;
+        const showLetEdges = letEdgesCheckbox ? letEdgesCheckbox.checked : true;
+        const showImplicationEdges = implicationEdgesCheckbox ? implicationEdgesCheckbox.checked : true;
+        const showCauByCauEdges = cauByCauEdgesCheckbox ? cauByCauEdgesCheckbox.checked : true;
+        const showCauBySupEdges = cauBySupEdgesCheckbox ? cauBySupEdgesCheckbox.checked : true;
         const edges = network.body.data.edges.get();
         const connectedNodes = new Set();
         
         edges.forEach(edge => {
-            const isLetEdge = !edge.dashes || edge.dashes.length === 0;
+            const edgeColor = edge.color && edge.color.color ? edge.color.color : edge.color;
             const isImplicationEdge = edge.dashes && edge.dashes.length > 0;
+            const isCauByCauEdge = edgeColor === '#27ae60';
+            const isCauBySupEdge = edgeColor === '#3498db';
+            const isMixedCausalityEdge = edgeColor === '#9b59b6';
+            const isLetEdge = !isImplicationEdge && !isCauByCauEdge && !isCauBySupEdge && !isMixedCausalityEdge;
             let hidden = false;
             
             if (isLetEdge && !showLetEdges) hidden = true;
             if (isImplicationEdge && !showImplicationEdges) hidden = true;
+            if (isCauByCauEdge && !showCauByCauEdges) hidden = true;
+            if (isCauBySupEdge && !showCauBySupEdges) hidden = true;
+            if (isMixedCausalityEdge && (!showCauByCauEdges || !showCauBySupEdges)) hidden = true;
             
             if (!hidden) {
                 connectedNodes.add(edge.from);
@@ -223,10 +284,11 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Find all nodes connected to selected nodes (neighbors)
         const connectedNodeIds = new Set(matchingIds);
+        const showAllEdges = showAllNeighborhoodEdgesCheckbox ? showAllNeighborhoodEdgesCheckbox.checked : false;
         
         allEdges.forEach(edge => {
-            // If edge is hidden by edge type filter, skip it
-            if (edge.hidden) return;
+            // Skip edges hidden by type filter
+            if (isEdgeHiddenByTypeFilter(edge)) return;
             
             // If either endpoint is selected, add both endpoints to visible set
             if (matchingIds.has(edge.from)) {
@@ -236,6 +298,27 @@ document.addEventListener('DOMContentLoaded', function() {
                 connectedNodeIds.add(edge.from);
             }
         });
+        
+        // Update edge visibility based on mode
+        const updatedEdges = allEdges.map(edge => {
+            // Check if edge should be hidden by type filter
+            const hiddenByTypeFilter = isEdgeHiddenByTypeFilter(edge);
+            if (hiddenByTypeFilter) {
+                return { ...edge, hidden: true };
+            }
+            
+            if (showAllEdges) {
+                // Show all edges where both endpoints are in the visible neighborhood
+                const edgeVisible = connectedNodeIds.has(edge.from) && connectedNodeIds.has(edge.to);
+                return { ...edge, hidden: !edgeVisible };
+            } else {
+                // Show only edges directly connected to selected nodes
+                const edgeVisible = matchingIds.has(edge.from) || matchingIds.has(edge.to);
+                return { ...edge, hidden: !edgeVisible };
+            }
+        });
+        
+        network.body.data.edges.update(updatedEdges);
         
         // Update node visibility: show only selected nodes and their neighbors
         const updatedNodes = allNodes.map(node => {
