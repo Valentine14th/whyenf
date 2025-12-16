@@ -32,3 +32,5 @@ docs/*/*.out
 docs/*/*.pdf
 docs/*/*/*.el
 *.secret
+ressources/
+viz/lib/
