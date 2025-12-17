@@ -166,6 +166,18 @@
     background: #f8f9fa;
     border-radius: 4px;
 }
+#node-controls {
+    margin-bottom: 15px;
+    padding: 10px;
+    background: #f3e5f5;
+    border-radius: 4px;
+}
+#node-controls label {
+    display: block;
+    margin-bottom: 5px;
+    font-size: 12px;
+    color: #4a148c;
+}
 #selection-controls {
     margin-bottom: 15px;
     padding: 10px;
@@ -309,6 +321,10 @@
 }
 .btn-clear:hover {
     background: #c0392b;
+}
+
+.btn-sink:hover {
+    background: #5d6d7e;
 }
 #search-results {
     margin-top: 8px;

@@ -416,6 +416,64 @@ document.addEventListener('DOMContentLoaded', function() {
         checkboxItems.forEach(item => item.style.display = 'flex');
     });
     
+    // Leaf nodes checkbox toggle
+    const selectLeafNodesCheckbox = document.getElementById('select-leaf-nodes');
+    if (selectLeafNodesCheckbox && typeof leafNodeNames !== 'undefined') {
+        selectLeafNodesCheckbox.addEventListener('change', function() {
+            const leafNodesSet = new Set(leafNodeNames);
+            
+            if (this.checked) {
+                // Select all leaf nodes
+                checkboxes.forEach(cb => {
+                    if (leafNodesSet.has(cb.value)) {
+                        cb.checked = true;
+                        selectedNodes.add(cb.value);
+                    }
+                });
+            } else {
+                // Deselect all leaf nodes
+                checkboxes.forEach(cb => {
+                    if (leafNodesSet.has(cb.value)) {
+                        cb.checked = false;
+                        selectedNodes.delete(cb.value);
+                    }
+                });
+            }
+            
+            updateSelectedDisplay();
+            highlightNodes();
+        });
+    }
+    
+    // Source nodes selection checkbox
+    const selectSourceNodesCheckbox = document.getElementById('select-source-nodes');
+    if (selectSourceNodesCheckbox && typeof sourceNodeNames !== 'undefined') {
+        selectSourceNodesCheckbox.addEventListener('change', function() {
+            const sourceNodesSet = new Set(sourceNodeNames);
+            
+            if (this.checked) {
+                // Select all source nodes
+                checkboxes.forEach(cb => {
+                    if (sourceNodesSet.has(cb.value)) {
+                        cb.checked = true;
+                        selectedNodes.add(cb.value);
+                    }
+                });
+            } else {
+                // Deselect all source nodes
+                checkboxes.forEach(cb => {
+                    if (sourceNodesSet.has(cb.value)) {
+                        cb.checked = false;
+                        selectedNodes.delete(cb.value);
+                    }
+                });
+            }
+            
+            updateSelectedDisplay();
+            highlightNodes();
+        });
+    }
+    
     // Clear all selections on page load
     selectedNodes.clear();
     checkboxes.forEach(cb => cb.checked = false);

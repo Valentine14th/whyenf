@@ -376,10 +376,10 @@ def create_let_graph(json_file, output_file, mode="original"):
             for pred in defn["predicates"]:
                 # Use LET node if predicate name matches a LET definition
                 pred_node = f"LET_{pred}" if pred in let_definition_names else pred
-                net.add_edge(let_id, pred_node, 
+                net.add_edge(pred_node, let_id, 
                             color={"color": "#bdc3c7", "highlight": "#e67e22", "opacity": 0.6},
                             width=2,
-                            title=f"{defn['name']} uses {pred}")
+                            title=f"{pred} used by {defn['name']}")
                 edge_count += 1
         
         print(f"Created {edge_count} edges from LET definitions")
@@ -463,6 +463,70 @@ def create_let_graph(json_file, output_file, mode="original"):
     
     print(f"Created {implication_edge_count} unique edges from {len(implications)} implications")
     
+    # Identify nodes with no outgoing edges and update their colors
+    all_edges = net.edges
+    nodes_with_outgoing = set()
+    for edge in all_edges:
+        nodes_with_outgoing.add(edge['from'])
+    
+    # Get all node IDs
+    all_node_ids = set()
+    for node in net.nodes:
+        all_node_ids.add(node['id'])
+    
+    # Nodes with no outgoing edges (leaf nodes)
+    leaf_nodes = all_node_ids - nodes_with_outgoing
+    
+    # Update leaf nodes with different color
+    for node in net.nodes:
+        if node['id'] in leaf_nodes:
+            # Check if it's a LET node or predicate node
+            if node['id'].startswith('LET_'):
+                # LET leaf nodes - darker red/brown
+                node['color'] = {
+                    "border": "#943126", 
+                    "background": "#cd6155", 
+                    "highlight": {"border": "#d68910", "background": "#f39c12"}
+                }
+            else:
+                # Predicate leaf nodes - gray
+                node['color'] = {
+                    "border": "#5d6d7e", 
+                    "background": "#85929e", 
+                    "highlight": {"border": "#f39c12", "background": "#f1c40f"}
+                }
+    
+    print(f"Found {len(leaf_nodes)} leaf nodes (no outgoing edges)")
+    
+    # Identify nodes with no incoming edges (source nodes - only outgoing edges)
+    nodes_with_incoming = set()
+    for edge in all_edges:
+        nodes_with_incoming.add(edge['to'])
+    
+    # Nodes with no incoming edges (source nodes)
+    source_nodes = all_node_ids - nodes_with_incoming
+    
+    # Update source nodes with different color
+    for node in net.nodes:
+        if node['id'] in source_nodes:
+            # Check if it's a LET node or predicate node
+            if node['id'].startswith('LET_'):
+                # LET source nodes - orange
+                node['color'] = {
+                    "border": "#d68910", 
+                    "background": "#f39c12", 
+                    "highlight": {"border": "#d68910", "background": "#f39c12"}
+                }
+            else:
+                # Predicate source nodes - light purple
+                node['color'] = {
+                    "border": "#7d3c98", 
+                    "background": "#af7ac5", 
+                    "highlight": {"border": "#f39c12", "background": "#f1c40f"}
+                }
+    
+    print(f"Found {len(source_nodes)} source nodes (no incoming edges)")
+    
     # Save the graph and add search functionality
     net.save_graph(output_file)
     
@@ -470,6 +534,24 @@ def create_let_graph(json_file, output_file, mode="original"):
     all_nodes = sorted(list(predicate_only_names))
     let_nodes = sorted([defn['name'] for defn in definitions])
     all_node_names = sorted(all_nodes + let_nodes)
+    
+    # Extract leaf node names (without LET_ prefix) for JavaScript
+    leaf_node_names = []
+    for node_id in leaf_nodes:
+        if node_id.startswith('LET_'):
+            leaf_node_names.append(node_id[4:])  # Remove LET_ prefix
+        else:
+            leaf_node_names.append(node_id)
+    leaf_node_names_json = json.dumps(leaf_node_names)
+    
+    # Extract source node names (without LET_ prefix) for JavaScript
+    source_node_names = []
+    for node_id in source_nodes:
+        if node_id.startswith('LET_'):
+            source_node_names.append(node_id[4:])  # Remove LET_ prefix
+        else:
+            source_node_names.append(node_id)
+    source_node_names_json = json.dumps(source_node_names)
     
     # Load external CSS and JS files
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -515,6 +597,16 @@ def create_let_graph(json_file, output_file, mode="original"):
                 </label>
                 {'<label><input type="checkbox" id="show-caubycau-edges" checked /><span class="edge-label"><span class="edge-indicator" style="background: #27ae60;"></span>Cause by Causing Edges</span></label>' if mode == "normal" else ''}
                 {'<label><input type="checkbox" id="show-caubysup-edges" checked /><span class="edge-label"><span class="edge-indicator" style="background: #3498db;"></span>Cause by Suppressing Edges</span></label>' if mode == "normal" else ''}
+            </div>
+            <div id="node-controls">
+                <label>
+                    <input type="checkbox" id="select-leaf-nodes" />
+                    <span class="edge-label">Select leaf nodes (no outgoing edges)</span>
+                </label>
+                <label>
+                    <input type="checkbox" id="select-source-nodes" />
+                    <span class="edge-label">Select source nodes (no incoming edges)</span>
+                </label>
             </div>
             <div id="selection-controls">
                 <label>
@@ -567,6 +659,11 @@ def create_let_graph(json_file, output_file, mode="original"):
     </div>
     
     <script type="text/javascript">
+        // Leaf nodes data
+        const leafNodeNames = {leaf_node_names_json};
+        // Source nodes data
+        const sourceNodeNames = {source_node_names_json};
+        
         {js_content}
     </script>
     """
