@@ -13,6 +13,121 @@
     display: flex;
     flex-direction: column;
 }
+
+#rankings-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1000;
+    background: white;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    font-family: Arial, sans-serif;
+    max-width: 300px;
+    max-height: calc(100vh - 40px);
+    display: flex;
+    flex-direction: column;
+}
+
+#rankings-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    cursor: pointer;
+}
+
+#rankings-label {
+    font-weight: bold;
+    color: #8e44ad;
+    font-size: 13px;
+}
+
+#rankings-toggle-btn {
+    background: #9b59b6;
+    color: white;
+    border: none;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    transition: background-color 0.2s;
+}
+
+#rankings-toggle-btn:hover {
+    background: #8e44ad;
+}
+
+#rankings-content {
+    overflow-y: auto;
+    max-height: calc(100vh - 100px);
+}
+
+#rankings-content.collapsed {
+    display: none;
+}
+
+.ranking-section {
+    margin-bottom: 15px;
+}
+
+.ranking-section h4 {
+    margin: 0 0 8px 0;
+    font-size: 13px;
+    color: #8e44ad;
+    border-bottom: 1px solid #e0e0e0;
+    padding-bottom: 5px;
+}
+
+.ranking-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.ranking-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 10px;
+    background: #f8f9fa;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background-color 0.2s, transform 0.1s;
+}
+
+.ranking-item:hover {
+    background: #e9ecef;
+    transform: translateX(2px);
+}
+
+.ranking-item .node-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #2c3e50;
+    font-weight: 500;
+}
+
+.ranking-item .edge-count {
+    background: #9b59b6;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: bold;
+    min-width: 25px;
+    text-align: center;
+}
+
+.ranking-item.selected {
+    background: #d4a5ff;
+    border-left: 3px solid #9b59b6;
+}
+
 #search-header {
     display: flex;
     justify-content: space-between;

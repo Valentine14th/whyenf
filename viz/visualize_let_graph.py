@@ -504,8 +504,8 @@ def create_let_graph(json_file, output_file, mode="original"):
         </div>
         <div id="search-content">
             <div id="edge-controls">
-                {'<label><input type="checkbox" id="show-let-edges" checked /><span class="edge-label"><span class="edge-indicator let"></span>LET Definition Edges</span></label>' if mode == "original" else ''}
-                {'<label><input type="checkbox" id="show-let-edges" checked /><span class="edge-label"><span class="edge-indicator" style="background: #bdc3c7;"></span>LET Edges</span></label>' if mode == "original" or (mode == "normal" and len(definitions) > 0) else ''}
+                {'<label><input type="checkbox" id="show-let-edges" checked /><span class="edge-label"><span class="edge-indicator let"></span>Definition Edges</span></label>' if mode == "original" else ''}
+                {'<label><input type="checkbox" id="show-let-edges" checked /><span class="edge-label"><span class="edge-indicator" style="background: #bdc3c7;"></span>Definition Edges</span></label>' if mode == "original" or (mode == "normal" and len(definitions) > 0) else ''}
                 <label>
                     <input type="checkbox" id="show-implication-edges" checked />
                     <span class="edge-label">
@@ -513,8 +513,8 @@ def create_let_graph(json_file, output_file, mode="original"):
                         Implication Edges
                     </span>
                 </label>
-                {'<label><input type="checkbox" id="show-caubycau-edges" checked /><span class="edge-label"><span class="edge-indicator" style="background: #27ae60;"></span>CauByCau Edges</span></label>' if mode == "normal" else ''}
-                {'<label><input type="checkbox" id="show-caubysup-edges" checked /><span class="edge-label"><span class="edge-indicator" style="background: #3498db;"></span>CauBySup Edges</span></label>' if mode == "normal" else ''}
+                {'<label><input type="checkbox" id="show-caubycau-edges" checked /><span class="edge-label"><span class="edge-indicator" style="background: #27ae60;"></span>Cause by Causing Edges</span></label>' if mode == "normal" else ''}
+                {'<label><input type="checkbox" id="show-caubysup-edges" checked /><span class="edge-label"><span class="edge-indicator" style="background: #3498db;"></span>Cause by Suppressing Edges</span></label>' if mode == "normal" else ''}
             </div>
             <div id="selection-controls">
                 <label>
@@ -546,6 +546,23 @@ def create_let_graph(json_file, output_file, mode="original"):
                 <button class="btn btn-clear" id="btn-clear">Clear All</button>
             </div>
             <div id="search-results"></div>
+        </div>
+    </div>
+    
+    <div id="rankings-container">
+        <div id="rankings-header">
+            <span id="rankings-label">Node Rankings</span>
+            <button id="rankings-toggle-btn">Hide</button>
+        </div>
+        <div id="rankings-content">
+            <div class="ranking-section">
+                <h4>Most Outgoing Edges</h4>
+                <div id="outgoing-ranking" class="ranking-list"></div>
+            </div>
+            <div class="ranking-section">
+                <h4>Most Inbound Edges</h4>
+                <div id="inbound-ranking" class="ranking-list"></div>
+            </div>
         </div>
     </div>
     

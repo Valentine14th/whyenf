@@ -437,4 +437,143 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Initialize display
     updateSelectedDisplay();
+    
+    // Rankings widget functionality
+    const rankingsContainer = document.getElementById('rankings-container');
+    const rankingsToggleBtn = document.getElementById('rankings-toggle-btn');
+    const rankingsContent = document.getElementById('rankings-content');
+    const rankingsHeader = document.getElementById('rankings-header');
+    const outgoingRanking = document.getElementById('outgoing-ranking');
+    const inboundRanking = document.getElementById('inbound-ranking');
+    
+    if (rankingsToggleBtn && rankingsContent && rankingsHeader) {
+        // Toggle rankings visibility
+        rankingsToggleBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (rankingsContent.classList.contains('collapsed')) {
+                rankingsContent.classList.remove('collapsed');
+                rankingsToggleBtn.textContent = 'Hide';
+            } else {
+                rankingsContent.classList.add('collapsed');
+                rankingsToggleBtn.textContent = 'Show';
+            }
+        });
+        
+        rankingsHeader.addEventListener('click', function(e) {
+            if (e.target !== rankingsToggleBtn) {
+                rankingsToggleBtn.click();
+            }
+        });
+    }
+    
+    function updateRankings() {
+        if (!outgoingRanking || !inboundRanking) return;
+        
+        // Get visible nodes and edges
+        const visibleNodes = network.body.data.nodes.get().filter(node => !node.hidden);
+        const visibleEdges = edges.get().filter(edge => !edge.hidden && !isEdgeHiddenByTypeFilter(edge));
+        
+        // Count outgoing and inbound edges for each node
+        const outgoingCounts = {};
+        const inboundCounts = {};
+        
+        visibleNodes.forEach(node => {
+            outgoingCounts[node.id] = 0;
+            inboundCounts[node.id] = 0;
+        });
+        
+        visibleEdges.forEach(edge => {
+            if (outgoingCounts.hasOwnProperty(edge.from)) {
+                outgoingCounts[edge.from]++;
+            }
+            if (inboundCounts.hasOwnProperty(edge.to)) {
+                inboundCounts[edge.to]++;
+            }
+        });
+        
+        // Sort nodes by counts
+        const sortedByOutgoing = visibleNodes
+            .map(node => ({ id: node.id, label: node.label, count: outgoingCounts[node.id] }))
+            .filter(item => item.count > 0)
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 15);
+        
+        const sortedByInbound = visibleNodes
+            .map(node => ({ id: node.id, label: node.label, count: inboundCounts[node.id] }))
+            .filter(item => item.count > 0)
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 15);
+        
+        // Update outgoing ranking
+        outgoingRanking.innerHTML = '';
+        if (sortedByOutgoing.length === 0) {
+            outgoingRanking.innerHTML = '<div style="color: #95a5a6; font-size: 11px; padding: 5px;">No edges</div>';
+        } else {
+            sortedByOutgoing.forEach((item, index) => {
+                const rankItem = document.createElement('div');
+                rankItem.className = 'ranking-item';
+                if (selectedNodes.has(item.label) || selectedNodes.has(item.id.replace('LET_', ''))) {
+                    rankItem.classList.add('selected');
+                }
+                rankItem.innerHTML = `
+                    <span class="node-name" title="${item.label}">${index + 1}. ${item.label}</span>
+                    <span class="edge-count">${item.count}</span>
+                `;
+                rankItem.addEventListener('click', function() {
+                    // Find and check the corresponding checkbox
+                    const nodeName = item.id.startsWith('LET_') ? item.id.substring(4) : item.id;
+                    const checkbox = Array.from(checkboxes).find(cb => cb.value === nodeName);
+                    if (checkbox) {
+                        checkbox.checked = !checkbox.checked;
+                        checkbox.dispatchEvent(new Event('change'));
+                    }
+                });
+                outgoingRanking.appendChild(rankItem);
+            });
+        }
+        
+        // Update inbound ranking
+        inboundRanking.innerHTML = '';
+        if (sortedByInbound.length === 0) {
+            inboundRanking.innerHTML = '<div style="color: #95a5a6; font-size: 11px; padding: 5px;">No edges</div>';
+        } else {
+            sortedByInbound.forEach((item, index) => {
+                const rankItem = document.createElement('div');
+                rankItem.className = 'ranking-item';
+                if (selectedNodes.has(item.label) || selectedNodes.has(item.id.replace('LET_', ''))) {
+                    rankItem.classList.add('selected');
+                }
+                rankItem.innerHTML = `
+                    <span class="node-name" title="${item.label}">${index + 1}. ${item.label}</span>
+                    <span class="edge-count">${item.count}</span>
+                `;
+                rankItem.addEventListener('click', function() {
+                    // Find and check the corresponding checkbox
+                    const nodeName = item.id.startsWith('LET_') ? item.id.substring(4) : item.id;
+                    const checkbox = Array.from(checkboxes).find(cb => cb.value === nodeName);
+                    if (checkbox) {
+                        checkbox.checked = !checkbox.checked;
+                        checkbox.dispatchEvent(new Event('change'));
+                    }
+                });
+                inboundRanking.appendChild(rankItem);
+            });
+        }
+    }
+    
+    // Initial rankings update
+    updateRankings();
+    
+    // Update rankings when selection or filters change
+    const originalHighlightNodes = highlightNodes;
+    highlightNodes = function() {
+        originalHighlightNodes();
+        updateRankings();
+    };
+    
+    const originalUpdateEdgeVisibility = updateEdgeVisibility;
+    updateEdgeVisibility = function() {
+        originalUpdateEdgeVisibility();
+        updateRankings();
+    };
 });
