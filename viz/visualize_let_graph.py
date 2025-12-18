@@ -629,6 +629,17 @@ def create_let_graph(json_file, output_file, mode="original"):
                     </label>
                 </div>
             </div>
+            <div style="margin: 10px 0; padding: 8px; background: #f8f9fa; border-radius: 4px; border: 1px solid #dee2e6;">
+                <div style="font-size: 11px; color: #555; margin-bottom: 5px; font-weight: 600;">Filter mode:</div>
+                <label style="margin-bottom: 3px; display: block;">
+                    <input type="radio" name="filter-mode" value="include" checked />
+                    <span class="edge-label">Include (show selected & neighbors)</span>
+                </label>
+                <label style="margin-bottom: 0; display: block;">
+                    <input type="radio" name="filter-mode" value="exclude" />
+                    <span class="edge-label">Exclude (hide selected nodes)</span>
+                </label>
+            </div>
             <input type="text" id="search-input" placeholder="Filter by name..." />
             <div id="dropdown-list">
 {checkbox_items_html}

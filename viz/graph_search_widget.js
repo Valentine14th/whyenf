@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const cauBySupEdgesCheckbox = document.getElementById('show-caubysup-edges');
     const showAllNeighborhoodEdgesCheckbox = document.getElementById('show-all-neighborhood-edges');
     const edgeDirectionRadios = document.getElementsByName('edge-direction');
+    const filterModeRadios = document.getElementsByName('filter-mode');
     
     const checkboxItems = dropdownList.querySelectorAll('.checkbox-item');
     const checkboxes = dropdownList.querySelectorAll('input[type="checkbox"]');
@@ -184,6 +185,15 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
     
+    // Filter mode radio handlers
+    filterModeRadios.forEach(radio => {
+        radio.addEventListener('change', function() {
+            if (selectedNodes.size > 0) {
+                highlightNodes(); // Re-apply highlighting with new mode
+            }
+        });
+    });
+    
     // Filter dropdown based on search
     searchInput.addEventListener('input', function() {
         const filter = this.value.toLowerCase();
@@ -275,6 +285,12 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
+        // Get filter mode
+        let filterMode = 'include';
+        filterModeRadios.forEach(radio => {
+            if (radio.checked) filterMode = radio.value;
+        });
+        
         // Find matching node IDs for selected nodes
         const matchingIds = new Set();
         
@@ -290,6 +306,42 @@ document.addEventListener('DOMContentLoaded', function() {
         if (matchingIds.size === 0) {
             searchResults.textContent = 'No matching nodes found';
             searchResults.style.color = '#e74c3c';
+            return;
+        }
+        
+        // Handle exclude mode
+        if (filterMode === 'exclude') {
+            // First, update edges to hide those connected to excluded nodes
+            const updatedEdges = allEdges.map(edge => {
+                const hiddenByTypeFilter = isEdgeHiddenByTypeFilter(edge);
+                const connectedToExcluded = matchingIds.has(edge.from) || matchingIds.has(edge.to);
+                const hidden = hiddenByTypeFilter || connectedToExcluded;
+                return { ...edge, hidden: hidden, physics: !hidden };
+            });
+            
+            // Collect nodes that have at least one visible edge
+            const nodesWithVisibleEdges = new Set();
+            updatedEdges.forEach(edge => {
+                if (!edge.hidden) {
+                    nodesWithVisibleEdges.add(edge.from);
+                    nodesWithVisibleEdges.add(edge.to);
+                }
+            });
+            
+            // Hide selected nodes AND nodes with no visible edges
+            const updatedNodes = allNodes.map(node => {
+                const isExcluded = matchingIds.has(node.id);
+                const hasNoEdges = !nodesWithVisibleEdges.has(node.id);
+                return { ...node, hidden: isExcluded || hasNoEdges };
+            });
+            
+            network.body.data.nodes.update(updatedNodes);
+            network.body.data.edges.update(updatedEdges);
+            network.selectNodes([]);
+            
+            const visibleCount = allNodes.filter(node => !matchingIds.has(node.id) && nodesWithVisibleEdges.has(node.id)).length;
+            searchResults.textContent = `Excluded ${matchingIds.size} node${matchingIds.size > 1 ? 's' : ''} (showing ${visibleCount})`;
+            searchResults.style.color = '#2c3e50';
             return;
         }
         
@@ -409,11 +461,20 @@ document.addEventListener('DOMContentLoaded', function() {
     btnClear.addEventListener('click', function() {
         selectedNodes.clear();
         checkboxes.forEach(cb => cb.checked = false);
+        
+        // Uncheck leaf and source node checkboxes
+        if (selectLeafNodesCheckbox) selectLeafNodesCheckbox.checked = false;
+        const selectSourceNodesCheckbox = document.getElementById('select-source-nodes');
+        if (selectSourceNodesCheckbox) selectSourceNodesCheckbox.checked = false;
+        
         updateSelectedDisplay();
         network.selectNodes([]);
         searchResults.textContent = '';
         searchInput.value = '';
         checkboxItems.forEach(item => item.style.display = 'flex');
+        
+        // Restore proper visibility based on edge filters
+        updateEdgeVisibility();
     });
     
     // Leaf nodes checkbox toggle
