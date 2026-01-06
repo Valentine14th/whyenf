@@ -13,27 +13,29 @@ import webbrowser
 from pyvis.network import Network
 
 
-def extract_predicates(node, predicates_set):
+def extract_predicates(node, predicates_set=None):
     """Recursively extract all predicate names from a formula node."""
+    if predicates_set is None:
+        predicates_set = set()
+    
+    if isinstance(node, list):
+        for item in node:
+            extract_predicates(item, predicates_set)
+        return predicates_set
+    
     if not isinstance(node, dict):
-        # If it's a list, recurse into it
-        if isinstance(node, list):
-            for item in node:
-                extract_predicates(item, predicates_set)
-        return
+        return predicates_set
     
     # Check if this is a Predicate constructor
     if node.get("constructor") == "Predicate":
         predicates_set.add(node["name"])
-        # Don't return - continue to check if there are nested predicates in args
     
     # Recursively traverse all values in the dictionary
-    for key, value in node.items():
-        if isinstance(value, dict):
+    for value in node.values():
+        if isinstance(value, (dict, list)):
             extract_predicates(value, predicates_set)
-        elif isinstance(value, list):
-            for item in value:
-                extract_predicates(item, predicates_set)
+    
+    return predicates_set
 
 
 def extract_let_definitions(node, definitions=None):
@@ -45,32 +47,18 @@ def extract_let_definitions(node, definitions=None):
         return definitions
     
     if node.get("constructor") == "Let":
-        let_name = node.get("name", "Unknown")
-        let_type = node.get("type", "")
-        
-        # Extract predicates from the body
-        predicates = set()
-        if "body" in node:
-            extract_predicates(node["body"], predicates)
-        
         definitions.append({
-            "name": let_name,
-            "type": let_type,
-            "predicates": predicates
+            "name": node.get("name", "Unknown"),
+            "type": node.get("type", ""),
+            "predicates": extract_predicates(node.get("body", {}))
         })
-        
-        # Continue searching in the "in" clause
-        if "in" in node:
-            extract_let_definitions(node["in"], definitions)
+        # Continue in the "in" clause
+        extract_let_definitions(node.get("in"), definitions)
     else:
-        # Recursively search for LET definitions
-        for key, value in node.items():
-            if isinstance(value, dict):
+        # Recursively search in all dict/list values
+        for value in node.values():
+            if isinstance(value, (dict, list)):
                 extract_let_definitions(value, definitions)
-            elif isinstance(value, list):
-                for item in value:
-                    if isinstance(item, dict):
-                        extract_let_definitions(item, definitions)
     
     return definitions
 
@@ -80,7 +68,6 @@ def extract_implications(node, implications=None):
     if implications is None:
         implications = []
     
-    # Handle list input
     if isinstance(node, list):
         for item in node:
             extract_implications(item, implications)
@@ -90,52 +77,26 @@ def extract_implications(node, implications=None):
         return implications
     
     if node.get("constructor") == "Imp":
-        # Extract predicates from left (antecedent)
-        left_predicates = set()
-        if "left" in node:
-            extract_predicates(node["left"], left_predicates)
-        
-        # Extract predicates from right (consequent)
-        right_predicates = set()
-        if "right" in node:
-            extract_predicates(node["right"], right_predicates)
-        
         implications.append({
-            "left": left_predicates,
-            "right": right_predicates
+            "left": extract_predicates(node.get("left", {})),
+            "right": extract_predicates(node.get("right", {}))
         })
     
-    # Recursively search for implications
-    if isinstance(node, dict):
-        for key, value in node.items():
-            if isinstance(value, dict):
-                extract_implications(value, implications)
-            elif isinstance(value, list):
-                for item in value:
-                    if isinstance(item, dict):
-                        extract_implications(item, implications)
+    # Recursively search in all dict/list values
+    for value in node.values():
+        if isinstance(value, (dict, list)):
+            extract_implications(value, implications)
     
     return implications
 
 
 def extract_let_definitions_normal(lets_array):
     """Extract LET definitions from normal JSON format (from 'lets' array)."""
-    definitions = []
-    for let_def in lets_array:
-        let_name = let_def.get("e", "Unknown")
-        
-        # Extract predicates from the formula
-        predicates = set()
-        if "formula" in let_def:
-            extract_predicates(let_def["formula"], predicates)
-        
-        definitions.append({
-            "name": let_name,
-            "type": let_def.get("enftype", ""),
-            "predicates": predicates
-        })
-    
-    return definitions
+    return [{
+        "name": let_def.get("e", "Unknown"),
+        "type": let_def.get("enftype", ""),
+        "predicates": extract_predicates(let_def.get("formula", {}))
+    } for let_def in lets_array]
 
 
 def extract_causality_rules(node, rules=None):
@@ -143,7 +104,6 @@ def extract_causality_rules(node, rules=None):
     if rules is None:
         rules = []
     
-    # Handle list input
     if isinstance(node, list):
         for item in node:
             extract_causality_rules(item, rules)
@@ -154,33 +114,17 @@ def extract_causality_rules(node, rules=None):
     
     constructor = node.get("constructor")
     if constructor in ["CauByCau", "CauBySup"]:
-        # Extract predicates from filter (inside "by" field)
-        filter_predicates = set()
-        if "by" in node and isinstance(node["by"], dict):
-            if "filter" in node["by"]:
-                extract_predicates(node["by"]["filter"], filter_predicates)
-        
-        # Extract predicates from effects (inside "by" field)
-        effects_predicates = set()
-        if "by" in node and isinstance(node["by"], dict):
-            if "effects" in node["by"]:
-                extract_predicates(node["by"]["effects"], effects_predicates)
-        
+        by_field = node.get("by", {})
         rules.append({
             "type": constructor,
-            "filter": filter_predicates,
-            "effects": effects_predicates
+            "filter": extract_predicates(by_field.get("filter", {})),
+            "effects": extract_predicates(by_field.get("effects", {}))
         })
     
-    # Recursively search for causality rules
-    if isinstance(node, dict):
-        for key, value in node.items():
-            if isinstance(value, dict):
-                extract_causality_rules(value, rules)
-            elif isinstance(value, list):
-                for item in value:
-                    if isinstance(item, dict):
-                        extract_causality_rules(item, rules)
+    # Recursively search in all dict/list values
+    for value in node.values():
+        if isinstance(value, (dict, list)):
+            extract_causality_rules(value, rules)
     
     return rules
 
@@ -321,237 +265,176 @@ def create_let_graph(json_file, output_file, mode="original"):
     print(f"Found {len(let_definition_names)} LET definitions")
     print(f"Found {len(predicate_only_names)} unique predicate nodes (excluding LET definition names)")
     
-    # Add predicate nodes (blue circles) - only for names that aren't LET definitions
-    for pred in predicate_only_names:
-        in_lets = pred in let_predicates
-        in_implications = pred in implication_predicates
-        in_causality = pred in causality_predicates
-        
-        # Build title based on where predicate appears
+    # Helper function to build predicate title
+    def build_predicate_title(pred):
         title_parts = [f"Predicate: {pred}"]
         locations = []
-        if in_lets:
+        if pred in let_predicates:
             locations.append("LET definitions")
-        if in_implications:
+        if pred in implication_predicates:
             locations.append("implications")
-        if in_causality:
+        if pred in causality_predicates:
             locations.append("causality rules")
-        
         if locations:
             title_parts.append(f"(Used in {' and '.join(locations)})")
-        
+        return "\n".join(title_parts)
+    
+    # Add predicate nodes (blue circles)
+    for pred in predicate_only_names:
         net.add_node(pred, 
                     label=pred, 
-                    color={"border": "#2980b9", "background": "#5dade2", "highlight": {"border": "#f39c12", "background": "#f1c40f"}},
+                    color={"border": "#2980b9", "background": "#5dade2", 
+                          "highlight": {"border": "#f39c12", "background": "#f1c40f"}},
                     shape="dot",
                     size=25,
                     font={"size": 14, "color": "#2c3e50"},
-                    title="\n".join(title_parts))
+                    title=build_predicate_title(pred))
     
-    # Add LET definition nodes (red boxes) - when definitions exist
-    if len(definitions) > 0:
-        for defn in definitions:
-            let_id = f"LET_{defn['name']}"
-            label = f"{defn['name']}"
-            
-            # Add predicates list to hover title
-            predicates_list = sorted(defn['predicates'])
-            hover_text = f"LET definition: {defn['name']}\nType: {defn['type']}\nUses {len(defn['predicates'])} predicates:\n"
-            hover_text += "\n".join(f"  • {p}" for p in predicates_list)
-            
-            net.add_node(let_id,
-                        label=label,
-                        color={"border": "#c0392b", "background": "#ec7063", "highlight": {"border": "#d68910", "background": "#f39c12"}},
-                        shape="box",
-                        size=30,
-                        font={"size": 15, "color": "#ffffff", "bold": True},
-                        shapeProperties={"borderRadius": 6},
-                        title=hover_text)
+    # Add LET definition nodes (red boxes)
+    for defn in definitions:
+        let_id = f"LET_{defn['name']}"
+        predicates_list = sorted(defn['predicates'])
+        hover_text = (f"LET definition: {defn['name']}\nType: {defn['type']}\n"
+                     f"Uses {len(defn['predicates'])} predicates:\n" +
+                     "\n".join(f"  • {p}" for p in predicates_list))
+        
+        net.add_node(let_id,
+                    label=defn['name'],
+                    color={"border": "#c0392b", "background": "#ec7063", 
+                          "highlight": {"border": "#d68910", "background": "#f39c12"}},
+                    shape="box",
+                    size=30,
+                    font={"size": 15, "color": "#ffffff", "bold": True},
+                    shapeProperties={"borderRadius": 6},
+                    title=hover_text)
+    
+    # Helper function to get correct node ID (LET node or predicate node)
+    def get_node_id(pred_name):
+        return f"LET_{pred_name}" if pred_name in let_definition_names else pred_name
     
     # Add edges from LET definitions to their predicates
     edge_count = 0
-    if len(definitions) > 0:
-        for defn in definitions:
-            let_id = f"LET_{defn['name']}"
-            for pred in defn["predicates"]:
-                # Use LET node if predicate name matches a LET definition
-                pred_node = f"LET_{pred}" if pred in let_definition_names else pred
-                net.add_edge(pred_node, let_id, 
-                            color={"color": "#bdc3c7", "highlight": "#e67e22", "opacity": 0.6},
-                            width=2,
-                            title=f"{pred} used by {defn['name']}")
-                edge_count += 1
-        
+    for defn in definitions:
+        let_id = f"LET_{defn['name']}"
+        for pred in defn["predicates"]:
+            net.add_edge(get_node_id(pred), let_id, 
+                        color={"color": "#bdc3c7", "highlight": "#e67e22", "opacity": 0.6},
+                        width=2,
+                        title=f"{pred} used by {defn['name']}")
+            edge_count += 1
+    
+    if definitions:
         print(f"Created {edge_count} edges from LET definitions")
     
     # Add edges from causality rules (normal mode only)
     causality_edge_count = 0
     if mode == "normal":
         causality_edges = {}  # (filter_pred, effect_pred) -> (count, rule_types)
+        
         for rule in rules:
-            rule_type = rule["type"]
             for filter_pred in rule["filter"]:
                 for effect_pred in rule["effects"]:
-                    # Use LET nodes if the predicate name matches a LET definition
-                    filter_node = f"LET_{filter_pred}" if filter_pred in let_definition_names else filter_pred
-                    effect_node = f"LET_{effect_pred}" if effect_pred in let_definition_names else effect_pred
-                    edge_key = (filter_node, effect_node)
+                    edge_key = (get_node_id(filter_pred), get_node_id(effect_pred))
                     if edge_key not in causality_edges:
                         causality_edges[edge_key] = {"count": 0, "types": set()}
                     causality_edges[edge_key]["count"] += 1
-                    causality_edges[edge_key]["types"].add(rule_type)
+                    causality_edges[edge_key]["types"].add(rule["type"])
         
-        # Add edges to graph with weight based on count
+        # Determine edge color based on rule types
+        def get_causality_color(rule_types):
+            if rule_types == {"CauByCau"}:
+                return "#27ae60"  # Green
+            elif rule_types == {"CauBySup"}:
+                return "#3498db"  # Blue
+            else:
+                return "#9b59b6"  # Purple (mixed)
+        
         for (filter_node, effect_node), data in causality_edges.items():
             count = data["count"]
-            rule_types = ", ".join(sorted(data["types"]))
-            
-            # Scale width and opacity based on count
             width = min(2 + (count - 1) * 0.5, 6)
             opacity = min(0.6 + (count - 1) * 0.1, 0.95)
-            
-            # Different colors for different causality rule types
-            if data["types"] == {"CauByCau"}:
-                edge_color = "#27ae60"  # Green for CauByCau
-            elif data["types"] == {"CauBySup"}:
-                edge_color = "#3498db"  # Blue for CauBySup
-            else:
-                edge_color = "#9b59b6"  # Purple for mixed (both CauByCau and CauBySup)
-            
+            rule_types_str = ", ".join(sorted(data["types"]))
             plural = "rules" if count > 1 else "rule"
+            
             net.add_edge(filter_node, effect_node,
-                        color={"color": edge_color, "highlight": "#f39c12", "opacity": opacity},
+                        color={"color": get_causality_color(data["types"]), 
+                              "highlight": "#f39c12", "opacity": opacity},
                         width=width,
-                        title=f"Causality: {filter_node} → {effect_node}\n({count} {plural}: {rule_types})")
+                        title=f"Causality: {filter_node} → {effect_node}\n({count} {plural}: {rule_types_str})")
             causality_edge_count += 1
         
         print(f"Created {causality_edge_count} unique edges from {len(rules)} causality rules")
     
-    # Add edges from implications (left predicates -> right predicates)
-    # Track edge counts to show weight
-    # Helper function to get correct node ID
-    def get_node_id(pred_name):
-        # If predicate name matches a LET definition, use the LET node
-        if pred_name in let_definition_names:
-            return f"LET_{pred_name}"
-        return pred_name
-    
+    # Add edges from implications
     implication_edges = {}  # (left, right) -> count
     for imp in implications:
         for left_pred in imp["left"]:
             for right_pred in imp["right"]:
-                # Use LET nodes if the predicate name matches a LET definition
-                left_node = get_node_id(left_pred)
-                right_node = get_node_id(right_pred)
-                edge_key = (left_node, right_node)
+                edge_key = (get_node_id(left_pred), get_node_id(right_pred))
                 implication_edges[edge_key] = implication_edges.get(edge_key, 0) + 1
     
-    # Add edges to graph with weight based on count
     implication_edge_count = 0
     for (left_node, right_node), count in implication_edges.items():
-        # Scale width and opacity based on count (min 1.5, scales up to 5)
         width = min(1.5 + (count - 1) * 0.5, 5)
         opacity = min(0.5 + (count - 1) * 0.1, 0.95)
-        
         plural = "implications" if count > 1 else "implication"
+        
         net.add_edge(left_node, right_node,
                     color={"color": "#9b59b6", "highlight": "#e74c3c", "opacity": opacity},
                     width=width,
-                    dashes=[5, 5],  # Dashed line to distinguish from LET edges
+                    dashes=[5, 5],
                     title=f"Implication: {left_node} → {right_node}\n({count} {plural})")
         implication_edge_count += 1
     
     print(f"Created {implication_edge_count} unique edges from {len(implications)} implications")
     
-    # Identify nodes with no outgoing edges and update their colors
+    # Identify and color leaf and source nodes
     all_edges = net.edges
-    nodes_with_outgoing = set()
-    for edge in all_edges:
-        nodes_with_outgoing.add(edge['from'])
+    all_node_ids = {node['id'] for node in net.nodes}
+    nodes_with_outgoing = {edge['from'] for edge in all_edges}
+    nodes_with_incoming = {edge['to'] for edge in all_edges}
     
-    # Get all node IDs
-    all_node_ids = set()
-    for node in net.nodes:
-        all_node_ids.add(node['id'])
-    
-    # Nodes with no outgoing edges (leaf nodes)
     leaf_nodes = all_node_ids - nodes_with_outgoing
-    
-    # Update leaf nodes with different color
-    for node in net.nodes:
-        if node['id'] in leaf_nodes:
-            # Check if it's a LET node or predicate node
-            if node['id'].startswith('LET_'):
-                # LET leaf nodes - darker red/brown
-                node['color'] = {
-                    "border": "#943126", 
-                    "background": "#cd6155", 
-                    "highlight": {"border": "#d68910", "background": "#f39c12"}
-                }
-            else:
-                # Predicate leaf nodes - gray
-                node['color'] = {
-                    "border": "#5d6d7e", 
-                    "background": "#85929e", 
-                    "highlight": {"border": "#f39c12", "background": "#f1c40f"}
-                }
-    
-    print(f"Found {len(leaf_nodes)} leaf nodes (no outgoing edges)")
-    
-    # Identify nodes with no incoming edges (source nodes - only outgoing edges)
-    nodes_with_incoming = set()
-    for edge in all_edges:
-        nodes_with_incoming.add(edge['to'])
-    
-    # Nodes with no incoming edges (source nodes)
     source_nodes = all_node_ids - nodes_with_incoming
     
-    # Update source nodes with different color
-    for node in net.nodes:
-        if node['id'] in source_nodes:
-            # Check if it's a LET node or predicate node
-            if node['id'].startswith('LET_'):
-                # LET source nodes - orange
-                node['color'] = {
-                    "border": "#d68910", 
-                    "background": "#f39c12", 
-                    "highlight": {"border": "#d68910", "background": "#f39c12"}
-                }
-            else:
-                # Predicate source nodes - light purple
-                node['color'] = {
-                    "border": "#7d3c98", 
-                    "background": "#af7ac5", 
-                    "highlight": {"border": "#f39c12", "background": "#f1c40f"}
-                }
+    # Define color schemes
+    def get_leaf_color(is_let_node):
+        if is_let_node:
+            return {"border": "#943126", "background": "#cd6155", 
+                   "highlight": {"border": "#d68910", "background": "#f39c12"}}
+        return {"border": "#5d6d7e", "background": "#85929e", 
+               "highlight": {"border": "#f39c12", "background": "#f1c40f"}}
     
+    def get_source_color(is_let_node):
+        if is_let_node:
+            return {"border": "#d68910", "background": "#f39c12", 
+                   "highlight": {"border": "#d68910", "background": "#f39c12"}}
+        return {"border": "#7d3c98", "background": "#af7ac5", 
+               "highlight": {"border": "#f39c12", "background": "#f1c40f"}}
+    
+    # Update node colors
+    for node in net.nodes:
+        is_let_node = node['id'].startswith('LET_')
+        if node['id'] in leaf_nodes:
+            node['color'] = get_leaf_color(is_let_node)
+        elif node['id'] in source_nodes:
+            node['color'] = get_source_color(is_let_node)
+    
+    print(f"Found {len(leaf_nodes)} leaf nodes (no outgoing edges)")
     print(f"Found {len(source_nodes)} source nodes (no incoming edges)")
     
     # Save the graph and add search functionality
     net.save_graph(output_file)
     
-    # Prepare node list for dropdown (only predicate nodes, not LET nodes)
-    all_nodes = sorted(list(predicate_only_names))
-    let_nodes = sorted([defn['name'] for defn in definitions])
-    all_node_names = sorted(all_nodes + let_nodes)
+    # Prepare node names for dropdown
+    all_node_names = sorted(list(predicate_only_names) + [defn['name'] for defn in definitions])
     
-    # Extract leaf node names (without LET_ prefix) for JavaScript
-    leaf_node_names = []
-    for node_id in leaf_nodes:
-        if node_id.startswith('LET_'):
-            leaf_node_names.append(node_id[4:])  # Remove LET_ prefix
-        else:
-            leaf_node_names.append(node_id)
-    leaf_node_names_json = json.dumps(leaf_node_names)
+    # Extract node names without LET_ prefix
+    def extract_node_name(node_id):
+        return node_id[4:] if node_id.startswith('LET_') else node_id
     
-    # Extract source node names (without LET_ prefix) for JavaScript
-    source_node_names = []
-    for node_id in source_nodes:
-        if node_id.startswith('LET_'):
-            source_node_names.append(node_id[4:])  # Remove LET_ prefix
-        else:
-            source_node_names.append(node_id)
-    source_node_names_json = json.dumps(source_node_names)
+    leaf_node_names_json = json.dumps([extract_node_name(nid) for nid in leaf_nodes])
+    source_node_names_json = json.dumps([extract_node_name(nid) for nid in source_nodes])
     
     # Load external CSS and JS files
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -588,32 +471,12 @@ def create_let_graph(json_file, output_file, mode="original"):
             <div id="edge-controls">
                 {'<label><input type="checkbox" id="show-let-edges" checked /><span class="edge-label"><span class="edge-indicator let"></span>Definition Edges</span></label>' if mode == "original" else ''}
                 {'<label><input type="checkbox" id="show-let-edges" checked /><span class="edge-label"><span class="edge-indicator" style="background: #bdc3c7;"></span>Definition Edges</span></label>' if mode == "original" or (mode == "normal" and len(definitions) > 0) else ''}
-                <label>
-                    <input type="checkbox" id="show-implication-edges" checked />
-                    <span class="edge-label">
-                        <span class="edge-indicator implication"></span>
-                        Implication Edges
-                    </span>
-                </label>
+                {'<label><input type="checkbox" id="show-implication-edges" checked /><span class="edge-label"><span class="edge-indicator implication"></span>Implication Edges</span></label>' if mode != "normal" else ''}
                 {'<label><input type="checkbox" id="show-caubycau-edges" checked /><span class="edge-label"><span class="edge-indicator" style="background: #27ae60;"></span>Cause by Causing Edges</span></label>' if mode == "normal" else ''}
                 {'<label><input type="checkbox" id="show-caubysup-edges" checked /><span class="edge-label"><span class="edge-indicator" style="background: #3498db;"></span>Cause by Suppressing Edges</span></label>' if mode == "normal" else ''}
             </div>
-            <div id="node-controls">
-                <label>
-                    <input type="checkbox" id="select-leaf-nodes" />
-                    <span class="edge-label">Select leaf nodes (no outgoing edges)</span>
-                </label>
-                <label>
-                    <input type="checkbox" id="select-source-nodes" />
-                    <span class="edge-label">Select source nodes (no incoming edges)</span>
-                </label>
-            </div>
             <div id="selection-controls">
-                <label>
-                    <input type="checkbox" id="show-all-neighborhood-edges" />
-                    <span class="edge-label">Show all edges in neighborhood</span>
-                </label>
-                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #c8e6c9;">
+                <div style="margin-top: 0px;">
                     <div style="font-size: 11px; color: #555; margin-bottom: 5px;">Edge direction:</div>
                     <label style="margin-bottom: 3px;">
                         <input type="radio" name="edge-direction" value="both" checked />
@@ -628,6 +491,16 @@ def create_let_graph(json_file, output_file, mode="original"):
                         <span class="edge-label">Incoming only</span>
                     </label>
                 </div>
+            </div>
+            <div id="node-controls">
+                <label>
+                    <input type="checkbox" id="select-leaf-nodes" />
+                    <span class="edge-label">Select leaf nodes (no outgoing edges)</span>
+                </label>
+                <label>
+                    <input type="checkbox" id="select-source-nodes" />
+                    <span class="edge-label">Select source nodes (no incoming edges)</span>
+                </label>
             </div>
             <div style="margin: 10px 0; padding: 8px; background: #f8f9fa; border-radius: 4px; border: 1px solid #dee2e6;">
                 <div style="font-size: 11px; color: #555; margin-bottom: 5px; font-weight: 600;">Filter mode:</div>
@@ -691,33 +564,36 @@ def create_let_graph(json_file, output_file, mode="original"):
     
     print(f"Graph saved to {output_file}")
     
-    # Print some statistics
+    # Print statistics
     total_nodes = len(predicate_only_names) + len(definitions)
-    print("\nStatistics:")
-    print(f"  Total LET definitions: {len(definitions)}")
-    print(f"  Total unique predicate nodes: {len(predicate_only_names)}")
-    print(f"  Total nodes in graph: {total_nodes}")
-    print(f"  Total implications: {len(implications)}")
-    if mode == "original":
-        print(f"  LET definition edges: {edge_count}")
+    print(f"\nGraph Statistics:")
+    print(f"  Nodes:")
+    print(f"    - LET definitions: {len(definitions)}")
+    print(f"    - Unique predicates: {len(predicate_only_names)}")
+    print(f"    - Total nodes: {total_nodes}")
+    print(f"  Edges:")
+    if mode == "original" and definitions:
+        print(f"    - LET definition edges: {edge_count}")
     if mode == "normal":
-        print(f"  Total causality rules: {len(rules)}")
-        print(f"  Causality edges: {causality_edge_count}")
-    print(f"  Implication edges: {implication_edge_count}")
-    if mode == "original" and len(definitions) > 0:
-        print(f"  Average predicates per definition: {edge_count / len(definitions):.2f}")
+        print(f"    - Causality rules: {len(rules)}")
+        print(f"    - Causality edges: {causality_edge_count}")
+    print(f"    - Implications: {len(implications)}")
+    print(f"    - Implication edges: {implication_edge_count}")
+    if mode == "original" and definitions:
+        print(f"  Average predicates per LET definition: {edge_count / len(definitions):.2f}")
     
-    # Find most used predicates
-    predicate_usage = {}
-    for defn in definitions:
-        for pred in defn["predicates"]:
-            predicate_usage[pred] = predicate_usage.get(pred, 0) + 1
-    
-    if predicate_usage:
-        most_used = sorted(predicate_usage.items(), key=lambda x: x[1], reverse=True)[:10]
-        print("\nTop 10 most used predicates:")
-        for pred, count in most_used:
-            print(f"  {pred}: used in {count} definitions")
+    # Print top used predicates
+    if definitions:
+        predicate_usage = {}
+        for defn in definitions:
+            for pred in defn["predicates"]:
+                predicate_usage[pred] = predicate_usage.get(pred, 0) + 1
+        
+        if predicate_usage:
+            most_used = sorted(predicate_usage.items(), key=lambda x: x[1], reverse=True)[:10]
+            print(f"\n  Top 10 most used predicates:")
+            for pred, count in most_used:
+                print(f"    - {pred}: used in {count} definition{'s' if count > 1 else ''}")
     
     return output_file
 
