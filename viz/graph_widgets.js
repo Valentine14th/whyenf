@@ -123,7 +123,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    function updateEdgeDirectionAvailability() {
+    function updateFilterModeControls() {
         const filterMode = GraphFilters.getSelectedFilterMode(filterModeRadios);
         const isExcludeMode = filterMode === 'exclude';
         
@@ -134,6 +134,28 @@ document.addEventListener('DOMContentLoaded', function() {
                 radio.parentElement.style.cursor = isExcludeMode ? 'not-allowed' : 'pointer';
             }
         });
+        
+        // Also disable leaf/source node selection checkboxes in exclude mode
+        const selectLeafNodesCheckbox = document.getElementById('select-leaf-nodes');
+        const selectSourceNodesCheckbox = document.getElementById('select-source-nodes');
+        
+        if (selectLeafNodesCheckbox) {
+            selectLeafNodesCheckbox.disabled = isExcludeMode;
+            const leafLabel = selectLeafNodesCheckbox.parentElement;
+            if (leafLabel) {
+                leafLabel.style.opacity = isExcludeMode ? '0.5' : '1';
+                leafLabel.style.cursor = isExcludeMode ? 'not-allowed' : 'pointer';
+            }
+        }
+        
+        if (selectSourceNodesCheckbox) {
+            selectSourceNodesCheckbox.disabled = isExcludeMode;
+            const sourceLabel = selectSourceNodesCheckbox.parentElement;
+            if (sourceLabel) {
+                sourceLabel.style.opacity = isExcludeMode ? '0.5' : '1';
+                sourceLabel.style.cursor = isExcludeMode ? 'not-allowed' : 'pointer';
+            }
+        }
     }
     
     function toggleNodeSelection(nodeNames, isSelected) {
@@ -182,7 +204,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     filterModeRadios.forEach(radio => {
         radio.addEventListener('change', function() {
-            updateEdgeDirectionAvailability();
+            updateFilterModeControls();
             if (selectedNodes.size > 0) highlightNodes();
         });
     });
@@ -330,7 +352,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     // Initialize edge direction availability based on filter mode
-    updateEdgeDirectionAvailability();
+    updateFilterModeControls();
     
     // Initialize display and rankings
     updateSelectedDisplay();
