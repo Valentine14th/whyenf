@@ -13,10 +13,12 @@ document.addEventListener('DOMContentLoaded', function() {
     const searchContent = document.getElementById('search-content');
     
     // Edge type filter checkboxes
-    const letEdgesCheckbox = document.getElementById('show-let-edges');
-    const implicationEdgesCheckbox = document.getElementById('show-implication-edges');
-    const cauByCauEdgesCheckbox = document.getElementById('show-caubycau-edges');
-    const cauBySupEdgesCheckbox = document.getElementById('show-caubysup-edges');
+    const edgeCheckboxes = {
+        letEdges: document.getElementById('show-let-edges'),
+        implicationEdges: document.getElementById('show-implication-edges'),
+        cauByCauEdges: document.getElementById('show-caubycau-edges'),
+        cauBySupEdges: document.getElementById('show-caubysup-edges')
+    };
     
     // Filter controls
     const edgeDirectionRadios = document.getElementsByName('edge-direction');
@@ -30,104 +32,10 @@ document.addEventListener('DOMContentLoaded', function() {
     let selectedNodes = new Set();
     
     // ============================================================================
-    // EDGE TYPE UTILITIES
+    // HELPER FUNCTIONS WITH CLOSURES
     // ============================================================================
     
-    const EdgeColors = {
-        CAU_BY_CAU: '#27ae60',
-        CAU_BY_SUP: '#3498db',
-        MIXED_CAUSALITY: '#9b59b6'
-    };
-    
-    function getEdgeColor(edge) {
-        return edge.color && edge.color.color ? edge.color.color : edge.color;
-    }
-    
-    function classifyEdge(edge) {
-        const edgeColor = getEdgeColor(edge);
-        const isImplicationEdge = edge.dashes && edge.dashes.length > 0;
-        const isCauByCauEdge = edgeColor === EdgeColors.CAU_BY_CAU;
-        const isCauBySupEdge = edgeColor === EdgeColors.CAU_BY_SUP;
-        const isMixedCausalityEdge = edgeColor === EdgeColors.MIXED_CAUSALITY;
-        const isLetEdge = !isImplicationEdge && !isCauByCauEdge && !isCauBySupEdge && !isMixedCausalityEdge;
-        
-        return { isLetEdge, isImplicationEdge, isCauByCauEdge, isCauBySupEdge, isMixedCausalityEdge };
-    }
-    
-    function getEdgeTypeVisibilitySettings() {
-        return {
-            showLetEdges: letEdgesCheckbox ? letEdgesCheckbox.checked : true,
-            showImplicationEdges: implicationEdgesCheckbox ? implicationEdgesCheckbox.checked : true,
-            showCauByCauEdges: cauByCauEdgesCheckbox ? cauByCauEdgesCheckbox.checked : true,
-            showCauBySupEdges: cauBySupEdgesCheckbox ? cauBySupEdgesCheckbox.checked : true
-        };
-    }
-    
-    function isEdgeHiddenByTypeFilter(edge) {
-        const settings = getEdgeTypeVisibilitySettings();
-        const { isLetEdge, isImplicationEdge, isCauByCauEdge, isCauBySupEdge, isMixedCausalityEdge } = classifyEdge(edge);
-        
-        if (isLetEdge && !settings.showLetEdges) return true;
-        if (isImplicationEdge && !settings.showImplicationEdges) return true;
-        if (isCauByCauEdge && !settings.showCauByCauEdges) return true;
-        if (isCauBySupEdge && !settings.showCauBySupEdges) return true;
-        if (isMixedCausalityEdge && (!settings.showCauByCauEdges || !settings.showCauBySupEdges)) return true;
-        
-        return false;
-    }
-    
-    // ============================================================================
-    // NODE UTILITIES
-    // ============================================================================
-    
-    function getVisibleNodesFromEdges() {
-        const edges = network.body.data.edges.get();
-        const connectedNodes = new Set();
-        
-        edges.forEach(edge => {
-            if (!isEdgeHiddenByTypeFilter(edge)) {
-                connectedNodes.add(edge.from);
-                connectedNodes.add(edge.to);
-            }
-        });
-        
-        return connectedNodes;
-    }
-    
-    function getNodeName(nodeId) {
-        return nodeId.startsWith('LET_') ? nodeId.substring(4) : nodeId;
-    }
-    
-    function findMatchingNodeIds(nodeNames) {
-        const allNodes = network.body.data.nodes.get();
-        const matchingIds = new Set();
-        
-        nodeNames.forEach(nodeName => {
-            const matches = allNodes.filter(node => 
-                node.label === nodeName || 
-                node.id === nodeName || 
-                node.id === 'LET_' + nodeName
-            );
-            matches.forEach(m => matchingIds.add(m.id));
-        });
-        
-        return matchingIds;
-    }
-    
-    // ============================================================================
-    // INITIALIZATION
-    // ============================================================================
-    
-    // Clear all selections when network is ready
-    network.once('stabilizationIterationsDone', function() {
-        network.selectNodes([]);
-        network.selectEdges([]);
-        network.unselectAll();
-    });
-    
-    // ============================================================================
-    // DROPDOWN FILTERING
-    // ============================================================================
+    const isEdgeHidden = (edge) => GraphEdges.isEdgeHiddenByTypeFilter(edge, edgeCheckboxes);
     
     function filterDropdownByVisibility(connectedNodes) {
         const allNodes = network.body.data.nodes.get();
@@ -136,7 +44,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Build set of visible node names
         allNodes.forEach(node => {
             if (connectedNodes.has(node.id)) {
-                visibleNodeNames.add(getNodeName(node.id));
+                visibleNodeNames.add(GraphNodes.getNodeName(node.id));
             }
         });
         
@@ -152,178 +60,21 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // ============================================================================
-    // EDGE VISIBILITY MANAGEMENT
-    // ============================================================================
-    
-    function updateEdgeVisibility() {
-        const edges = network.body.data.edges.get();
-        const nodes = network.body.data.nodes.get();
-        const connectedNodes = new Set();
-        
-        // Update edges and track connected nodes
-        const updatedEdges = edges.map(edge => {
-            const hidden = isEdgeHiddenByTypeFilter(edge);
-            
-            if (!hidden) {
-                connectedNodes.add(edge.from);
-                connectedNodes.add(edge.to);
-            }
-            
-            return { ...edge, hidden: hidden, physics: !hidden };
-        });
-        
-        network.body.data.edges.update(updatedEdges);
-        
-        // Update node visibility
-        if (selectedNodes.size > 0) {
-            highlightNodes(); // Handles node visibility with selection
-        } else {
-            const updatedNodes = nodes.map(node => {
-                const isConnected = connectedNodes.has(node.id);
-                return { ...node, hidden: !isConnected };
-            });
-            network.body.data.nodes.update(updatedNodes);
-        }
-        
+    function handleEdgeVisibilityUpdate() {
+        const connectedNodes = GraphFilters.updateEdgeVisibility(network, selectedNodes, isEdgeHidden, highlightNodes);
         filterDropdownByVisibility(connectedNodes);
-    }
-    
-    // ============================================================================
-    // NODE HIGHLIGHTING (MAIN FILTER LOGIC)
-    // ============================================================================
-    
-    function getSelectedEdgeDirection() {
-        let direction = 'both';
-        edgeDirectionRadios.forEach(radio => {
-            if (radio.checked) direction = radio.value;
-        });
-        return direction;
-    }
-    
-    function getSelectedFilterMode() {
-        let mode = 'include';
-        filterModeRadios.forEach(radio => {
-            if (radio.checked) mode = radio.value;
-        });
-        return mode;
-    }
-    
-    function shouldIncludeEdge(edge, matchingIds, edgeDirection) {
-        if (isEdgeHiddenByTypeFilter(edge)) return false;
-        
-        const isOutgoing = matchingIds.has(edge.from);
-        const isIncoming = matchingIds.has(edge.to);
-        
-        if (edgeDirection === 'both') return isOutgoing || isIncoming;
-        if (edgeDirection === 'outgoing') return isOutgoing;
-        if (edgeDirection === 'incoming') return isIncoming;
-        
-        return false;
-    }
-    
-    function buildNeighborhoodFromEdges(matchingIds, edgeDirection) {
-        const allEdges = network.body.data.edges.get();
-        const connectedNodeIds = new Set(matchingIds);
-        
-        allEdges.forEach(edge => {
-            if (!shouldIncludeEdge(edge, matchingIds, edgeDirection)) return;
-            
-            const isOutgoing = matchingIds.has(edge.from);
-            const isIncoming = matchingIds.has(edge.to);
-            
-            if (isOutgoing) connectedNodeIds.add(edge.to);
-            if (isIncoming) connectedNodeIds.add(edge.from);
-        });
-        
-        return connectedNodeIds;
-    }
-    
-    function applyExcludeMode(matchingIds) {
-        const allNodes = network.body.data.nodes.get();
-        const allEdges = network.body.data.edges.get();
-        
-        // Hide edges connected to excluded nodes
-        const updatedEdges = allEdges.map(edge => {
-            const hiddenByTypeFilter = isEdgeHiddenByTypeFilter(edge);
-            const connectedToExcluded = matchingIds.has(edge.from) || matchingIds.has(edge.to);
-            const hidden = hiddenByTypeFilter || connectedToExcluded;
-            return { ...edge, hidden: hidden, physics: !hidden };
-        });
-        
-        // Collect nodes with visible edges
-        const nodesWithVisibleEdges = new Set();
-        updatedEdges.forEach(edge => {
-            if (!edge.hidden) {
-                nodesWithVisibleEdges.add(edge.from);
-                nodesWithVisibleEdges.add(edge.to);
-            }
-        });
-        
-        // Hide excluded nodes and nodes with no visible edges
-        const updatedNodes = allNodes.map(node => {
-            const isExcluded = matchingIds.has(node.id);
-            const hasNoEdges = !nodesWithVisibleEdges.has(node.id);
-            return { ...node, hidden: isExcluded || hasNoEdges };
-        });
-        
-        network.body.data.nodes.update(updatedNodes);
-        network.body.data.edges.update(updatedEdges);
-        network.selectNodes([]);
-        
-        const visibleCount = allNodes.filter(node => 
-            !matchingIds.has(node.id) && nodesWithVisibleEdges.has(node.id)
-        ).length;
-        
-        searchResults.textContent = `Excluded ${matchingIds.size} node${matchingIds.size > 1 ? 's' : ''} (showing ${visibleCount})`;
-        searchResults.style.color = '#2c3e50';
-    }
-    
-    function applyIncludeMode(matchingIds, connectedNodeIds) {
-        const allNodes = network.body.data.nodes.get();
-        const allEdges = network.body.data.edges.get();
-        const edgeDirection = getSelectedEdgeDirection();
-        
-        // Update edge visibility
-        const updatedEdges = allEdges.map(edge => {
-            if (isEdgeHiddenByTypeFilter(edge)) {
-                return { ...edge, hidden: true, physics: false };
-            }
-            
-            if (!shouldIncludeEdge(edge, matchingIds, edgeDirection)) {
-                return { ...edge, hidden: true, physics: false };
-            }
-            
-            const isOutgoing = matchingIds.has(edge.from);
-            const isIncoming = matchingIds.has(edge.to);
-            const edgeVisible = isOutgoing || isIncoming;
-            
-            return { ...edge, hidden: !edgeVisible, physics: edgeVisible };
-        });
-        
-        network.body.data.edges.update(updatedEdges);
-        
-        // Update node visibility
-        const updatedNodes = allNodes.map(node => {
-            return { ...node, hidden: !connectedNodeIds.has(node.id) };
-        });
-        
-        network.body.data.nodes.update(updatedNodes);
-        network.selectNodes(Array.from(matchingIds));
-        
-        searchResults.textContent = `Showing ${matchingIds.size} selected node${matchingIds.size > 1 ? 's' : ''} with ${connectedNodeIds.size - matchingIds.size} neighbor${connectedNodeIds.size - matchingIds.size !== 1 ? 's' : ''}`;
-        searchResults.style.color = '#27ae60';
+        GraphRankings.updateRankings(network, selectedNodes, checkboxes, isEdgeHidden);
     }
     
     function highlightNodes() {
         if (selectedNodes.size === 0) {
             network.selectNodes([]);
             searchResults.textContent = '';
-            updateEdgeVisibility();
+            handleEdgeVisibilityUpdate();
             return;
         }
         
-        const matchingIds = findMatchingNodeIds(selectedNodes);
+        const matchingIds = GraphNodes.findMatchingNodeIds(network, selectedNodes);
         
         if (matchingIds.size === 0) {
             searchResults.textContent = 'No matching nodes found';
@@ -331,20 +82,22 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
-        const filterMode = getSelectedFilterMode();
+        const filterMode = GraphFilters.getSelectedFilterMode(filterModeRadios);
         
         if (filterMode === 'exclude') {
-            applyExcludeMode(matchingIds);
+            const result = GraphFilters.applyExcludeMode(network, matchingIds, isEdgeHidden);
+            searchResults.textContent = `Excluded ${result.excludedCount} node${result.excludedCount > 1 ? 's' : ''} (showing ${result.visibleCount})`;
+            searchResults.style.color = '#2c3e50';
         } else {
-            const edgeDirection = getSelectedEdgeDirection();
-            const connectedNodeIds = buildNeighborhoodFromEdges(matchingIds, edgeDirection);
-            applyIncludeMode(matchingIds, connectedNodeIds);
+            const edgeDirection = GraphFilters.getSelectedEdgeDirection(edgeDirectionRadios);
+            const connectedNodeIds = GraphFilters.buildNeighborhoodFromEdges(network, matchingIds, edgeDirection, isEdgeHidden);
+            const result = GraphFilters.applyIncludeMode(network, matchingIds, connectedNodeIds, edgeDirection, isEdgeHidden);
+            searchResults.textContent = `Showing ${result.selectedCount} selected node${result.selectedCount > 1 ? 's' : ''} with ${result.neighborCount} neighbor${result.neighborCount !== 1 ? 's' : ''}`;
+            searchResults.style.color = '#27ae60';
         }
+        
+        GraphRankings.updateRankings(network, selectedNodes, checkboxes, isEdgeHidden);
     }
-    
-    // ============================================================================
-    // SELECTED NODES DISPLAY
-    // ============================================================================
     
     function updateSelectedDisplay() {
         selectedNodesDiv.innerHTML = '';
@@ -370,23 +123,8 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // ============================================================================
-    // EVENT HANDLERS - EDGE TYPE TOGGLES
-    // ============================================================================
-    
-    if (letEdgesCheckbox) letEdgesCheckbox.addEventListener('change', updateEdgeVisibility);
-    if (implicationEdgesCheckbox) implicationEdgesCheckbox.addEventListener('change', updateEdgeVisibility);
-    if (cauByCauEdgesCheckbox) cauByCauEdgesCheckbox.addEventListener('change', updateEdgeVisibility);
-    if (cauBySupEdgesCheckbox) cauBySupEdgesCheckbox.addEventListener('change', updateEdgeVisibility);
-    
-    edgeDirectionRadios.forEach(radio => {
-        radio.addEventListener('change', function() {
-            if (selectedNodes.size > 0) highlightNodes();
-        });
-    });
-    
     function updateEdgeDirectionAvailability() {
-        const filterMode = getSelectedFilterMode();
+        const filterMode = GraphFilters.getSelectedFilterMode(filterModeRadios);
         const isExcludeMode = filterMode === 'exclude';
         
         edgeDirectionRadios.forEach(radio => {
@@ -397,6 +135,50 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+    
+    function toggleNodeSelection(nodeNames, isSelected) {
+        const nodeSet = new Set(nodeNames);
+        
+        checkboxes.forEach(cb => {
+            if (nodeSet.has(cb.value)) {
+                cb.checked = isSelected;
+                if (isSelected) {
+                    selectedNodes.add(cb.value);
+                } else {
+                    selectedNodes.delete(cb.value);
+                }
+            }
+        });
+        
+        updateSelectedDisplay();
+        highlightNodes();
+    }
+    
+    // ============================================================================
+    // INITIALIZATION
+    // ============================================================================
+    
+    // Clear all selections when network is ready
+    network.once('stabilizationIterationsDone', function() {
+        network.selectNodes([]);
+        network.selectEdges([]);
+        network.unselectAll();
+    });
+    
+    // ============================================================================
+    // EVENT HANDLERS - EDGE TYPE TOGGLES
+    // ============================================================================
+    
+    if (edgeCheckboxes.letEdges) edgeCheckboxes.letEdges.addEventListener('change', handleEdgeVisibilityUpdate);
+    if (edgeCheckboxes.implicationEdges) edgeCheckboxes.implicationEdges.addEventListener('change', handleEdgeVisibilityUpdate);
+    if (edgeCheckboxes.cauByCauEdges) edgeCheckboxes.cauByCauEdges.addEventListener('change', handleEdgeVisibilityUpdate);
+    if (edgeCheckboxes.cauBySupEdges) edgeCheckboxes.cauBySupEdges.addEventListener('change', handleEdgeVisibilityUpdate);
+    
+    edgeDirectionRadios.forEach(radio => {
+        radio.addEventListener('change', function() {
+            if (selectedNodes.size > 0) highlightNodes();
+        });
+    });
     
     filterModeRadios.forEach(radio => {
         radio.addEventListener('change', function() {
@@ -421,13 +203,13 @@ document.addEventListener('DOMContentLoaded', function() {
     
     searchInput.addEventListener('input', function() {
         const filter = this.value.toLowerCase();
-        const connectedNodes = getVisibleNodesFromEdges();
+        const connectedNodes = GraphNodes.getVisibleNodesFromEdges(network, isEdgeHidden);
         
         const allNodes = network.body.data.nodes.get();
         const visibleNodeNames = new Set();
         allNodes.forEach(node => {
             if (connectedNodes.has(node.id)) {
-                visibleNodeNames.add(getNodeName(node.id));
+                visibleNodeNames.add(GraphNodes.getNodeName(node.id));
             }
         });
         
@@ -478,30 +260,12 @@ document.addEventListener('DOMContentLoaded', function() {
         searchInput.value = '';
         checkboxItems.forEach(item => item.style.display = 'flex');
         
-        updateEdgeVisibility();
+        handleEdgeVisibilityUpdate();
     });
     
     // ============================================================================
     // EVENT HANDLERS - SPECIAL NODE SELECTIONS
     // ============================================================================
-    
-    function toggleNodeSelection(nodeNames, isSelected) {
-        const nodeSet = new Set(nodeNames);
-        
-        checkboxes.forEach(cb => {
-            if (nodeSet.has(cb.value)) {
-                cb.checked = isSelected;
-                if (isSelected) {
-                    selectedNodes.add(cb.value);
-                } else {
-                    selectedNodes.delete(cb.value);
-                }
-            }
-        });
-        
-        updateSelectedDisplay();
-        highlightNodes();
-    }
     
     const selectLeafNodesCheckbox = document.getElementById('select-leaf-nodes');
     if (selectLeafNodesCheckbox && typeof leafNodeNames !== 'undefined') {
@@ -520,81 +284,6 @@ document.addEventListener('DOMContentLoaded', function() {
     // ============================================================================
     // RANKINGS WIDGET
     // ============================================================================
-    
-    function updateRankings() {
-        const outgoingRanking = document.getElementById('outgoing-ranking');
-        const inboundRanking = document.getElementById('inbound-ranking');
-        
-        if (!outgoingRanking || !inboundRanking) return;
-        
-        const visibleNodes = network.body.data.nodes.get().filter(node => !node.hidden);
-        const visibleEdges = network.body.data.edges.get().filter(edge => !edge.hidden && !isEdgeHiddenByTypeFilter(edge));
-        
-        // Count edges for each node
-        const outgoingCounts = {};
-        const inboundCounts = {};
-        
-        visibleNodes.forEach(node => {
-            outgoingCounts[node.id] = 0;
-            inboundCounts[node.id] = 0;
-        });
-        
-        visibleEdges.forEach(edge => {
-            if (outgoingCounts.hasOwnProperty(edge.from)) outgoingCounts[edge.from]++;
-            if (inboundCounts.hasOwnProperty(edge.to)) inboundCounts[edge.to]++;
-        });
-        
-        // Sort and slice top 15
-        const sortedByOutgoing = visibleNodes
-            .map(node => ({ id: node.id, label: node.label, count: outgoingCounts[node.id] }))
-            .filter(item => item.count > 0)
-            .sort((a, b) => b.count - a.count)
-            .slice(0, 15);
-        
-        const sortedByInbound = visibleNodes
-            .map(node => ({ id: node.id, label: node.label, count: inboundCounts[node.id] }))
-            .filter(item => item.count > 0)
-            .sort((a, b) => b.count - a.count)
-            .slice(0, 15);
-        
-        // Render rankings
-        renderRanking(outgoingRanking, sortedByOutgoing);
-        renderRanking(inboundRanking, sortedByInbound);
-    }
-    
-    function renderRanking(container, items) {
-        container.innerHTML = '';
-        
-        if (items.length === 0) {
-            container.innerHTML = '<div style="color: #95a5a6; font-size: 11px; padding: 5px;">No edges</div>';
-            return;
-        }
-        
-        items.forEach((item, index) => {
-            const rankItem = document.createElement('div');
-            rankItem.className = 'ranking-item';
-            
-            const nodeName = getNodeName(item.id);
-            if (selectedNodes.has(item.label) || selectedNodes.has(nodeName)) {
-                rankItem.classList.add('selected');
-            }
-            
-            rankItem.innerHTML = `
-                <span class="node-name" title="${item.label}">${index + 1}. ${item.label}</span>
-                <span class="edge-count">${item.count}</span>
-            `;
-            
-            rankItem.addEventListener('click', function() {
-                const checkbox = Array.from(checkboxes).find(cb => cb.value === nodeName);
-                if (checkbox) {
-                    checkbox.checked = !checkbox.checked;
-                    checkbox.dispatchEvent(new Event('change'));
-                }
-            });
-            
-            container.appendChild(rankItem);
-        });
-    }
     
     const rankingsToggleBtn = document.getElementById('rankings-toggle-btn');
     const rankingsContent = document.getElementById('rankings-content');
@@ -619,19 +308,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // Hook rankings update into highlight and edge visibility functions
-    const originalHighlightNodes = highlightNodes;
-    highlightNodes = function() {
-        originalHighlightNodes();
-        updateRankings();
-    };
-    
-    const originalUpdateEdgeVisibility = updateEdgeVisibility;
-    updateEdgeVisibility = function() {
-        originalUpdateEdgeVisibility();
-        updateRankings();
-    };
-    
     // ============================================================================
     // INITIALIZATION - DEFAULT STATE
     // ============================================================================
@@ -643,10 +319,10 @@ document.addEventListener('DOMContentLoaded', function() {
     searchResults.textContent = '';
     
     // Set default edge type visibility
-    if (letEdgesCheckbox) letEdgesCheckbox.checked = true;
-    if (implicationEdgesCheckbox) implicationEdgesCheckbox.checked = true;
-    if (cauByCauEdgesCheckbox) cauByCauEdgesCheckbox.checked = true;
-    if (cauBySupEdgesCheckbox) cauBySupEdgesCheckbox.checked = true;
+    if (edgeCheckboxes.letEdges) edgeCheckboxes.letEdges.checked = true;
+    if (edgeCheckboxes.implicationEdges) edgeCheckboxes.implicationEdges.checked = true;
+    if (edgeCheckboxes.cauByCauEdges) edgeCheckboxes.cauByCauEdges.checked = true;
+    if (edgeCheckboxes.cauBySupEdges) edgeCheckboxes.cauBySupEdges.checked = true;
     
     // Set default edge direction
     edgeDirectionRadios.forEach(radio => {
@@ -658,5 +334,5 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Initialize display and rankings
     updateSelectedDisplay();
-    updateRankings();
+    GraphRankings.updateRankings(network, selectedNodes, checkboxes, isEdgeHidden);
 });
