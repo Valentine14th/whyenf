@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Graph Visualization</title>
+    <link rel="stylesheet" href="graph_search_widget.css">
+</head>
+<body>
+    <div id="search-container">
+        <div id="search-header">
+            <span id="search-label">Select Events/Definitions</span>
+            <button id="toggle-btn">Hide</button>
+        </div>
+        <div id="search-content">
+            <div id="edge-controls">
+                <!-- EDGE_CONTROLS_PLACEHOLDER -->
+            </div>
+            <div id="selection-controls">
+                <div style="margin-top: 0px;">
+                    <div style="font-size: 11px; color: #555; margin-bottom: 5px;">Edge direction:</div>
+                    <label style="margin-bottom: 3px;">
+                        <input type="radio" name="edge-direction" value="both" checked />
+                        <span class="edge-label">Both</span>
+                    </label>
+                    <label style="margin-bottom: 3px;">
+                        <input type="radio" name="edge-direction" value="outgoing" />
+                        <span class="edge-label">Outgoing only</span>
+                    </label>
+                    <label style="margin-bottom: 3px;">
+                        <input type="radio" name="edge-direction" value="incoming" />
+                        <span class="edge-label">Incoming only</span>
+                    </label>
+                </div>
+            </div>
+            <div id="node-controls">
+                <label>
+                    <input type="checkbox" id="select-leaf-nodes" />
+                    <span class="edge-label">Select leaf nodes (no outgoing edges)</span>
+                </label>
+                <label>
+                    <input type="checkbox" id="select-source-nodes" />
+                    <span class="edge-label">Select source nodes (no incoming edges)</span>
+                </label>
+            </div>
+            <div style="margin: 10px 0; padding: 8px; background: #f8f9fa; border-radius: 4px; border: 1px solid #dee2e6;">
+                <div style="font-size: 11px; color: #555; margin-bottom: 5px; font-weight: 600;">Filter mode:</div>
+                <label style="margin-bottom: 3px; display: block;">
+                    <input type="radio" name="filter-mode" value="include" checked />
+                    <span class="edge-label">Include (show selected & neighbors)</span>
+                </label>
+                <label style="margin-bottom: 0; display: block;">
+                    <input type="radio" name="filter-mode" value="exclude" />
+                    <span class="edge-label">Exclude (hide selected nodes)</span>
+                </label>
+            </div>
+            <input type="text" id="search-input" placeholder="Filter by name..." />
+            <div id="dropdown-list">
+                <!-- CHECKBOX_ITEMS_PLACEHOLDER -->
+            </div>
+            <div id="selected-nodes"></div>
+            <div id="button-container">
+                <button class="btn btn-clear" id="btn-clear">Clear All</button>
+            </div>
+            <div id="search-results"></div>
+        </div>
+    </div>
+    
+    <div id="rankings-container">
+        <div id="rankings-header">
+            <span id="rankings-label">Node Rankings</span>
+            <button id="rankings-toggle-btn">Hide</button>
+        </div>
+        <div id="rankings-content">
+            <div class="ranking-section">
+                <h4>Most Outgoing Edges</h4>
+                <div id="outgoing-ranking" class="ranking-list"></div>
+            </div>
+            <div class="ranking-section">
+                <h4>Most Inbound Edges</h4>
+                <div id="inbound-ranking" class="ranking-list"></div>
+            </div>
+        </div>
+    </div>
+    
+    <script type="text/javascript">
+        // Leaf nodes data
+        const leafNodeNames = <!-- LEAF_NODES_JSON -->;
+        // Source nodes data
+        const sourceNodeNames = <!-- SOURCE_NODES_JSON -->;
+    </script>
+    <script src="graph_search_widget.js"></script>
+</body>
+</html>

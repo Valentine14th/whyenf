@@ -129,6 +129,184 @@ def extract_causality_rules(node, rules=None):
     return rules
 
 
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
+def get_node_id(pred_name, let_definition_names):
+    """Return the correct node ID (LET node or predicate node)."""
+    return f"LET_{pred_name}" if pred_name in let_definition_names else pred_name
+
+
+def extract_node_name(node_id):
+    """Extract node name without LET_ prefix."""
+    return node_id[4:] if node_id.startswith('LET_') else node_id
+
+
+def get_physics_options():
+    """Return network physics configuration as a dict."""
+    return {
+        "physics": {
+            "enabled": True,
+            "barnesHut": {
+                "gravitationalConstant": -5000,
+                "centralGravity": 0.1,
+                "springLength": 150,
+                "springConstant": 0.01,
+                "damping": 0.9,
+                "avoidOverlap": 0.2
+            },
+            "stabilization": {
+                "enabled": True,
+                "iterations": 1000,
+                "updateInterval": 50
+            },
+            "maxVelocity": 15,
+            "minVelocity": 0.1,
+            "solver": "barnesHut",
+            "timestep": 0.3
+        },
+        "nodes": {
+            "font": {
+                "size": 16,
+                "face": "Arial",
+                "bold": {"color": "#333333"}
+            },
+            "borderWidth": 2,
+            "borderWidthSelected": 3,
+            "shadow": {"enabled": False},
+            "physics": True
+        },
+        "edges": {
+            "arrows": {
+                "to": {"enabled": True, "scaleFactor": 0.6}
+            },
+            "smooth": {"enabled": False},
+            "width": 1.5,
+            "shadow": {"enabled": False}
+        },
+        "interaction": {
+            "hover": True,
+            "tooltipDelay": 100,
+            "hideEdgesOnDrag": True,
+            "hideNodesOnDrag": False,
+            "navigationButtons": True,
+            "keyboard": {"enabled": True}
+        }
+    }
+
+
+def get_predicate_node_color():
+    """Return color scheme for predicate nodes."""
+    return {
+        "border": "#2980b9",
+        "background": "#5dade2",
+        "highlight": {"border": "#f39c12", "background": "#f1c40f"}
+    }
+
+
+def get_let_node_color():
+    """Return color scheme for LET definition nodes."""
+    return {
+        "border": "#c0392b",
+        "background": "#ec7063",
+        "highlight": {"border": "#d68910", "background": "#f39c12"}
+    }
+
+
+def get_leaf_color(is_let_node):
+    """Return color scheme for leaf nodes (no outgoing edges)."""
+    if is_let_node:
+        return {
+            "border": "#943126",
+            "background": "#cd6155",
+            "highlight": {"border": "#d68910", "background": "#f39c12"}
+        }
+    return {
+        "border": "#5d6d7e",
+        "background": "#85929e",
+        "highlight": {"border": "#f39c12", "background": "#f1c40f"}
+    }
+
+
+def get_source_color(is_let_node):
+    """Return color scheme for source nodes (no incoming edges)."""
+    if is_let_node:
+        return {
+            "border": "#d68910",
+            "background": "#f39c12",
+            "highlight": {"border": "#d68910", "background": "#f39c12"}
+        }
+    return {
+        "border": "#7d3c98",
+        "background": "#af7ac5",
+        "highlight": {"border": "#f39c12", "background": "#f1c40f"}
+    }
+
+
+def get_causality_color(rule_types):
+    """Determine edge color based on causality rule types."""
+    if rule_types == {"CauByCau"}:
+        return "#27ae60"  # Green
+    elif rule_types == {"CauBySup"}:
+        return "#3498db"  # Blue
+    else:
+        return "#9b59b6"  # Purple (mixed)
+
+
+def calculate_edge_properties(count, base_width=1.5, base_opacity=0.5, 
+                             width_increment=0.5, opacity_increment=0.1, 
+                             max_width=6, max_opacity=0.95):
+    """Calculate edge width and opacity based on count."""
+    width = min(base_width + (count - 1) * width_increment, max_width)
+    opacity = min(base_opacity + (count - 1) * opacity_increment, max_opacity)
+    return width, opacity
+
+
+def create_edge_control(control_id, label, color=None, checked=True):
+    """Create a single edge control HTML element."""
+    checked_attr = ' checked' if checked else ''
+    indicator_style = f' style="background: {color};"' if color else ' class="implication"'
+    return (
+        f'<label><input type="checkbox" id="{control_id}"{checked_attr} />'
+        f'<span class="edge-label"><span class="edge-indicator"{indicator_style}>'
+        f'</span>{label}</span></label>'
+    )
+
+
+def build_edge_controls_html(mode, has_definitions):
+    """Build edge controls HTML based on mode and available edge types."""
+    controls = []
+    
+    # LET/Definition edges
+    if mode == "original" or (mode == "normal" and has_definitions):
+        controls.append(create_edge_control("show-let-edges", "Definition Edges", "#bdc3c7"))
+    
+    # Implication edges (not in normal mode)
+    if mode != "normal":
+        controls.append(create_edge_control("show-implication-edges", "Implication Edges"))
+    
+    # Causality edges (normal mode only)
+    if mode == "normal":
+        controls.append(create_edge_control("show-caubycau-edges", "Cause by Causing Edges", "#27ae60"))
+        controls.append(create_edge_control("show-caubysup-edges", "Cause by Suppressing Edges", "#3498db"))
+    
+    return '\n                '.join(controls)
+
+
+def build_checkbox_items_html(node_names):
+    """Build checkbox items HTML for node selection."""
+    items = []
+    for i, name in enumerate(node_names):
+        items.append(
+            f'<div class="checkbox-item">\n'
+            f'    <input type="checkbox" id="node_{i}" value="{name}" />\n'
+            f'    <label for="node_{i}">{name}</label>\n'
+            f'</div>'
+        )
+    return '\n                '.join(items)
+
+
 def create_let_graph(json_file, output_file, mode="original"):
     """Create PyVis graph from formula JSON showing LET definition dependencies or causality rules."""
     
@@ -162,75 +340,10 @@ def create_let_graph(json_file, output_file, mode="original"):
         
         rules = []
     
-    # Create network
+    # Create network and configure physics
     net = Network(height="900px", width="100%", directed=True, 
                   notebook=False, bgcolor="#ffffff", font_color="#333333")
-    
-    # Configure physics for better layout and performance with minimal movement
-    net.set_options("""
-    {
-      "physics": {
-        "enabled": true,
-        "barnesHut": {
-          "gravitationalConstant": -5000,
-          "centralGravity": 0.1,
-          "springLength": 150,
-          "springConstant": 0.01,
-          "damping": 0.9,
-          "avoidOverlap": 0.2
-        },
-        "stabilization": {
-          "enabled": true,
-          "iterations": 1000,
-          "updateInterval": 50
-        },
-        "maxVelocity": 15,
-        "minVelocity": 0.1,
-        "solver": "barnesHut",
-        "timestep": 0.3
-      },
-      "nodes": {
-        "font": {
-          "size": 16,
-          "face": "Arial",
-          "bold": {
-            "color": "#333333"
-          }
-        },
-        "borderWidth": 2,
-        "borderWidthSelected": 3,
-        "shadow": {
-          "enabled": false
-        },
-        "physics": true
-      },
-      "edges": {
-        "arrows": {
-          "to": {
-            "enabled": true,
-            "scaleFactor": 0.6
-          }
-        },
-        "smooth": {
-          "enabled": false
-        },
-        "width": 1.5,
-        "shadow": {
-          "enabled": false
-        }
-      },
-      "interaction": {
-        "hover": true,
-        "tooltipDelay": 100,
-        "hideEdgesOnDrag": true,
-        "hideNodesOnDrag": false,
-        "navigationButtons": true,
-        "keyboard": {
-          "enabled": true
-        }
-      }
-    }
-    """)
+    net.set_options(json.dumps(get_physics_options()))
     
     # Collect all unique predicates from LET definitions (original mode only)
     let_predicates = set()
@@ -281,46 +394,48 @@ def create_let_graph(json_file, output_file, mode="original"):
     
     # Add predicate nodes (blue circles)
     for pred in predicate_only_names:
-        net.add_node(pred, 
-                    label=pred, 
-                    color={"border": "#2980b9", "background": "#5dade2", 
-                          "highlight": {"border": "#f39c12", "background": "#f1c40f"}},
-                    shape="dot",
-                    size=25,
-                    font={"size": 14, "color": "#2c3e50"},
-                    title=build_predicate_title(pred))
+        net.add_node(
+            pred,
+            label=pred,
+            color=get_predicate_node_color(),
+            shape="dot",
+            size=25,
+            font={"size": 14, "color": "#2c3e50"},
+            title=build_predicate_title(pred)
+        )
     
     # Add LET definition nodes (red boxes)
     for defn in definitions:
         let_id = f"LET_{defn['name']}"
         predicates_list = sorted(defn['predicates'])
-        hover_text = (f"LET definition: {defn['name']}\nType: {defn['type']}\n"
-                     f"Uses {len(defn['predicates'])} predicates:\n" +
-                     "\n".join(f"  • {p}" for p in predicates_list))
-        
-        net.add_node(let_id,
-                    label=defn['name'],
-                    color={"border": "#c0392b", "background": "#ec7063", 
-                          "highlight": {"border": "#d68910", "background": "#f39c12"}},
-                    shape="box",
-                    size=30,
-                    font={"size": 15, "color": "#ffffff", "bold": True},
-                    shapeProperties={"borderRadius": 6},
-                    title=hover_text)
-    
-    # Helper function to get correct node ID (LET node or predicate node)
-    def get_node_id(pred_name):
-        return f"LET_{pred_name}" if pred_name in let_definition_names else pred_name
+        hover_text = (
+            f"LET definition: {defn['name']}\nType: {defn['type']}\n"
+            f"Uses {len(defn['predicates'])} predicates:\n" +
+            "\n".join(f"  • {p}" for p in predicates_list)
+        )
+        net.add_node(
+            let_id,
+            label=defn['name'],
+            color=get_let_node_color(),
+            shape="box",
+            size=30,
+            font={"size": 15, "color": "#ffffff", "bold": True},
+            shapeProperties={"borderRadius": 6},
+            title=hover_text
+        )
     
     # Add edges from LET definitions to their predicates
     edge_count = 0
     for defn in definitions:
         let_id = f"LET_{defn['name']}"
         for pred in defn["predicates"]:
-            net.add_edge(get_node_id(pred), let_id, 
-                        color={"color": "#bdc3c7", "highlight": "#e67e22", "opacity": 0.6},
-                        width=2,
-                        title=f"{pred} used by {defn['name']}")
+            net.add_edge(
+                get_node_id(pred, let_definition_names),
+                let_id,
+                color={"color": "#bdc3c7", "highlight": "#e67e22", "opacity": 0.6},
+                width=2,
+                title=f"{pred} used by {defn['name']}"
+            )
             edge_count += 1
     
     if definitions:
@@ -329,61 +444,67 @@ def create_let_graph(json_file, output_file, mode="original"):
     # Add edges from causality rules (normal mode only)
     causality_edge_count = 0
     if mode == "normal":
-        causality_edges = {}  # (filter_pred, effect_pred) -> (count, rule_types)
-        
+        # Aggregate causality edges
+        causality_edges = {}  # (source, target) -> {count, types}
         for rule in rules:
             for filter_pred in rule["filter"]:
                 for effect_pred in rule["effects"]:
-                    edge_key = (get_node_id(filter_pred), get_node_id(effect_pred))
+                    edge_key = (
+                        get_node_id(filter_pred, let_definition_names),
+                        get_node_id(effect_pred, let_definition_names)
+                    )
                     if edge_key not in causality_edges:
                         causality_edges[edge_key] = {"count": 0, "types": set()}
                     causality_edges[edge_key]["count"] += 1
                     causality_edges[edge_key]["types"].add(rule["type"])
         
-        # Determine edge color based on rule types
-        def get_causality_color(rule_types):
-            if rule_types == {"CauByCau"}:
-                return "#27ae60"  # Green
-            elif rule_types == {"CauBySup"}:
-                return "#3498db"  # Blue
-            else:
-                return "#9b59b6"  # Purple (mixed)
-        
+        # Create edges with aggregated properties
         for (filter_node, effect_node), data in causality_edges.items():
             count = data["count"]
-            width = min(2 + (count - 1) * 0.5, 6)
-            opacity = min(0.6 + (count - 1) * 0.1, 0.95)
+            width, opacity = calculate_edge_properties(count, base_width=2, base_opacity=0.6)
             rule_types_str = ", ".join(sorted(data["types"]))
             plural = "rules" if count > 1 else "rule"
             
-            net.add_edge(filter_node, effect_node,
-                        color={"color": get_causality_color(data["types"]), 
-                              "highlight": "#f39c12", "opacity": opacity},
-                        width=width,
-                        title=f"Causality: {filter_node} → {effect_node}\n({count} {plural}: {rule_types_str})")
+            net.add_edge(
+                filter_node,
+                effect_node,
+                color={
+                    "color": get_causality_color(data["types"]),
+                    "highlight": "#f39c12",
+                    "opacity": opacity
+                },
+                width=width,
+                title=f"Causality: {filter_node} → {effect_node}\n({count} {plural}: {rule_types_str})"
+            )
             causality_edge_count += 1
         
         print(f"Created {causality_edge_count} unique edges from {len(rules)} causality rules")
     
     # Add edges from implications
-    implication_edges = {}  # (left, right) -> count
+    implication_edges = {}  # (source, target) -> count
     for imp in implications:
         for left_pred in imp["left"]:
             for right_pred in imp["right"]:
-                edge_key = (get_node_id(left_pred), get_node_id(right_pred))
+                edge_key = (
+                    get_node_id(left_pred, let_definition_names),
+                    get_node_id(right_pred, let_definition_names)
+                )
                 implication_edges[edge_key] = implication_edges.get(edge_key, 0) + 1
     
+    # Create implication edges with aggregated properties
     implication_edge_count = 0
     for (left_node, right_node), count in implication_edges.items():
-        width = min(1.5 + (count - 1) * 0.5, 5)
-        opacity = min(0.5 + (count - 1) * 0.1, 0.95)
+        width, opacity = calculate_edge_properties(count, base_width=1.5, base_opacity=0.5, max_width=5)
         plural = "implications" if count > 1 else "implication"
         
-        net.add_edge(left_node, right_node,
-                    color={"color": "#9b59b6", "highlight": "#e74c3c", "opacity": opacity},
-                    width=width,
-                    dashes=[5, 5],
-                    title=f"Implication: {left_node} → {right_node}\n({count} {plural})")
+        net.add_edge(
+            left_node,
+            right_node,
+            color={"color": "#9b59b6", "highlight": "#e74c3c", "opacity": opacity},
+            width=width,
+            dashes=[5, 5],
+            title=f"Implication: {left_node} → {right_node}\n({count} {plural})"
+        )
         implication_edge_count += 1
     
     print(f"Created {implication_edge_count} unique edges from {len(implications)} implications")
@@ -397,22 +518,7 @@ def create_let_graph(json_file, output_file, mode="original"):
     leaf_nodes = all_node_ids - nodes_with_outgoing
     source_nodes = all_node_ids - nodes_with_incoming
     
-    # Define color schemes
-    def get_leaf_color(is_let_node):
-        if is_let_node:
-            return {"border": "#943126", "background": "#cd6155", 
-                   "highlight": {"border": "#d68910", "background": "#f39c12"}}
-        return {"border": "#5d6d7e", "background": "#85929e", 
-               "highlight": {"border": "#f39c12", "background": "#f1c40f"}}
-    
-    def get_source_color(is_let_node):
-        if is_let_node:
-            return {"border": "#d68910", "background": "#f39c12", 
-                   "highlight": {"border": "#d68910", "background": "#f39c12"}}
-        return {"border": "#7d3c98", "background": "#af7ac5", 
-               "highlight": {"border": "#f39c12", "background": "#f1c40f"}}
-    
-    # Update node colors
+    # Update node colors for leaf and source nodes
     for node in net.nodes:
         is_let_node = node['id'].startswith('LET_')
         if node['id'] in leaf_nodes:
@@ -428,136 +534,33 @@ def create_let_graph(json_file, output_file, mode="original"):
     
     # Prepare node names for dropdown
     all_node_names = sorted(list(predicate_only_names) + [defn['name'] for defn in definitions])
-    
-    # Extract node names without LET_ prefix
-    def extract_node_name(node_id):
-        return node_id[4:] if node_id.startswith('LET_') else node_id
-    
     leaf_node_names_json = json.dumps([extract_node_name(nid) for nid in leaf_nodes])
     source_node_names_json = json.dumps([extract_node_name(nid) for nid in source_nodes])
     
-    # Load external CSS and JS files
+    # Load template file
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    css_file = os.path.join(script_dir, 'graph_search_widget.css')
-    js_file = os.path.join(script_dir, 'graph_search_widget.js')
+    template_file = os.path.join(script_dir, 'graph_template.html')
     
-    with open(css_file, 'r') as f:
-        css_content = f.read()
+    with open(template_file, 'r') as f:
+        widget_template = f.read()
     
-    with open(js_file, 'r') as f:
-        js_content = f.read()
+    # Build HTML components
+    checkbox_items_html = build_checkbox_items_html(all_node_names)
+    edge_controls_html = build_edge_controls_html(mode, len(definitions) > 0)
     
-    # Build checkbox items HTML
-    checkbox_items_html = ''.join(
-        f'                <div class="checkbox-item">\n'
-        f'                    <input type="checkbox" id="node_{i}" value="{name}" />\n'
-        f'                    <label for="node_{i}">{name}</label>\n'
-        f'                </div>\n'
-        for i, name in enumerate(all_node_names)
-    )
+    # Replace placeholders in template
+    widget_html = (widget_template
+                   .replace('<!-- EDGE_CONTROLS_PLACEHOLDER -->', edge_controls_html)
+                   .replace('<!-- CHECKBOX_ITEMS_PLACEHOLDER -->', checkbox_items_html)
+                   .replace('<!-- LEAF_NODES_JSON -->', leaf_node_names_json)
+                   .replace('<!-- SOURCE_NODES_JSON -->', source_node_names_json))
     
-    # Build complete search HTML
-    search_html = f"""
-    <style>
-        {css_content}
-    </style>
-    
-    <div id="search-container">
-        <div id="search-header">
-            <span id="search-label">Select Events/Definitions</span>
-            <button id="toggle-btn">Hide</button>
-        </div>
-        <div id="search-content">
-            <div id="edge-controls">
-                {'<label><input type="checkbox" id="show-let-edges" checked /><span class="edge-label"><span class="edge-indicator let"></span>Definition Edges</span></label>' if mode == "original" else ''}
-                {'<label><input type="checkbox" id="show-let-edges" checked /><span class="edge-label"><span class="edge-indicator" style="background: #bdc3c7;"></span>Definition Edges</span></label>' if mode == "original" or (mode == "normal" and len(definitions) > 0) else ''}
-                {'<label><input type="checkbox" id="show-implication-edges" checked /><span class="edge-label"><span class="edge-indicator implication"></span>Implication Edges</span></label>' if mode != "normal" else ''}
-                {'<label><input type="checkbox" id="show-caubycau-edges" checked /><span class="edge-label"><span class="edge-indicator" style="background: #27ae60;"></span>Cause by Causing Edges</span></label>' if mode == "normal" else ''}
-                {'<label><input type="checkbox" id="show-caubysup-edges" checked /><span class="edge-label"><span class="edge-indicator" style="background: #3498db;"></span>Cause by Suppressing Edges</span></label>' if mode == "normal" else ''}
-            </div>
-            <div id="selection-controls">
-                <div style="margin-top: 0px;">
-                    <div style="font-size: 11px; color: #555; margin-bottom: 5px;">Edge direction:</div>
-                    <label style="margin-bottom: 3px;">
-                        <input type="radio" name="edge-direction" value="both" checked />
-                        <span class="edge-label">Both</span>
-                    </label>
-                    <label style="margin-bottom: 3px;">
-                        <input type="radio" name="edge-direction" value="outgoing" />
-                        <span class="edge-label">Outgoing only</span>
-                    </label>
-                    <label style="margin-bottom: 3px;">
-                        <input type="radio" name="edge-direction" value="incoming" />
-                        <span class="edge-label">Incoming only</span>
-                    </label>
-                </div>
-            </div>
-            <div id="node-controls">
-                <label>
-                    <input type="checkbox" id="select-leaf-nodes" />
-                    <span class="edge-label">Select leaf nodes (no outgoing edges)</span>
-                </label>
-                <label>
-                    <input type="checkbox" id="select-source-nodes" />
-                    <span class="edge-label">Select source nodes (no incoming edges)</span>
-                </label>
-            </div>
-            <div style="margin: 10px 0; padding: 8px; background: #f8f9fa; border-radius: 4px; border: 1px solid #dee2e6;">
-                <div style="font-size: 11px; color: #555; margin-bottom: 5px; font-weight: 600;">Filter mode:</div>
-                <label style="margin-bottom: 3px; display: block;">
-                    <input type="radio" name="filter-mode" value="include" checked />
-                    <span class="edge-label">Include (show selected & neighbors)</span>
-                </label>
-                <label style="margin-bottom: 0; display: block;">
-                    <input type="radio" name="filter-mode" value="exclude" />
-                    <span class="edge-label">Exclude (hide selected nodes)</span>
-                </label>
-            </div>
-            <input type="text" id="search-input" placeholder="Filter by name..." />
-            <div id="dropdown-list">
-{checkbox_items_html}
-            </div>
-            <div id="selected-nodes"></div>
-            <div id="button-container">
-                <button class="btn btn-clear" id="btn-clear">Clear All</button>
-            </div>
-            <div id="search-results"></div>
-        </div>
-    </div>
-    
-    <div id="rankings-container">
-        <div id="rankings-header">
-            <span id="rankings-label">Node Rankings</span>
-            <button id="rankings-toggle-btn">Hide</button>
-        </div>
-        <div id="rankings-content">
-            <div class="ranking-section">
-                <h4>Most Outgoing Edges</h4>
-                <div id="outgoing-ranking" class="ranking-list"></div>
-            </div>
-            <div class="ranking-section">
-                <h4>Most Inbound Edges</h4>
-                <div id="inbound-ranking" class="ranking-list"></div>
-            </div>
-        </div>
-    </div>
-    
-    <script type="text/javascript">
-        // Leaf nodes data
-        const leafNodeNames = {leaf_node_names_json};
-        // Source nodes data
-        const sourceNodeNames = {source_node_names_json};
-        
-        {js_content}
-    </script>
-    """
-    
-    # Add custom search box HTML/JS
+    # Read the generated graph HTML and insert widget
     with open(output_file, 'r') as f:
         html_content = f.read()
     
-    # Insert before closing body tag
-    html_content = html_content.replace('</body>', search_html + '</body>')
+    # Insert widget before closing body tag
+    html_content = html_content.replace('</body>', widget_html + '</body>')
     
     with open(output_file, 'w') as f:
         f.write(html_content)
@@ -601,7 +604,7 @@ def create_let_graph(json_file, output_file, mode="original"):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Generate PyVis graph from MFOTL formula JSON')
     parser.add_argument('input', help='Input JSON file')
-    parser.add_argument('output', help='Output HTML file')
+    parser.add_argument('output', help='Output HTML file (will be created in viz/ directory)')
     parser.add_argument('--normal', action='store_true', 
                        help='Process normal mode JSON (with CauByCau/CauBySup instead of LET definitions)')
     
@@ -609,7 +612,12 @@ if __name__ == "__main__":
     
     mode = "normal" if args.normal else "original"
     
-    html_file = create_let_graph(args.input, args.output, mode=mode)
+    # Force output to be in viz directory
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    output_basename = os.path.basename(args.output)
+    output_path = os.path.join(script_dir, output_basename)
+    
+    html_file = create_let_graph(args.input, output_path, mode=mode)
     
     # Open in browser
     abs_path = os.path.abspath(html_file)
