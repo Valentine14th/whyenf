@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const searchInput = document.getElementById('search-input');
     const dropdownList = document.getElementById('dropdown-list');
     const selectedNodesDiv = document.getElementById('selected-nodes');
+    const selectedPartitionsDiv = document.getElementById('selected-partitions');
     const searchResults = document.getElementById('search-results');
     const btnClear = document.getElementById('btn-clear');
     const toggleBtn = document.getElementById('toggle-btn');
@@ -28,8 +29,15 @@ document.addEventListener('DOMContentLoaded', function() {
     const checkboxItems = dropdownList.querySelectorAll('.checkbox-item');
     const checkboxes = dropdownList.querySelectorAll('input[type="checkbox"]');
     
+    // Partition controls
+    const partitionList = document.getElementById('partition-list');
+    const partitionSearchInput = document.getElementById('partition-search-input');
+    const partitionCheckboxes = partitionList ? partitionList.querySelectorAll('.partition-checkbox') : [];
+    const partitionItems = partitionList ? partitionList.querySelectorAll('.checkbox-item') : [];
+    
     // State
     let selectedNodes = new Set();
+    let selectedPartitions = new Set();
     
     // ============================================================================
     // HELPER FUNCTIONS WITH CLOSURES
@@ -61,12 +69,35 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     function handleEdgeVisibilityUpdate() {
+        // If partitions are selected, apply partition filter first
+        if (selectedPartitions.size > 0) {
+            GraphPartitions.applyPartitionFilter(network, selectedPartitions, partitions, isEdgeHidden);
+        }
+        
         const connectedNodes = GraphFilters.updateEdgeVisibility(network, selectedNodes, isEdgeHidden, highlightNodes);
         filterDropdownByVisibility(connectedNodes);
         GraphRankings.updateRankings(network, selectedNodes, checkboxes, isEdgeHidden);
     }
     
     function highlightNodes() {
+        // If partitions are selected, let partition filter handle visibility
+        if (selectedPartitions.size > 0) {
+            const filterMode = GraphFilters.getSelectedFilterMode(filterModeRadios);
+            const edgeDirection = GraphFilters.getSelectedEdgeDirection(edgeDirectionRadios);
+            const result = GraphPartitions.applyPartitionFilterWithMode(
+                network, selectedPartitions, partitions, filterMode, edgeDirection, isEdgeHidden
+            );
+            
+            if (result.mode === 'exclude') {
+                searchResults.textContent = `Excluded ${result.excludedCount} node${result.excludedCount !== 1 ? 's' : ''} in ${selectedPartitions.size} partition${selectedPartitions.size !== 1 ? 's' : ''} (showing ${result.visibleCount})`;
+            } else {
+                searchResults.textContent = `Showing ${result.selectedCount} node${result.selectedCount !== 1 ? 's' : ''} in ${selectedPartitions.size} partition${selectedPartitions.size !== 1 ? 's' : ''} with ${result.neighborCount} neighbor${result.neighborCount !== 1 ? 's' : ''}`;
+            }
+            searchResults.style.color = '#2980b9';
+            GraphRankings.updateRankings(network, selectedNodes, checkboxes, isEdgeHidden);
+            return;
+        }
+        
         if (selectedNodes.size === 0) {
             network.selectNodes([]);
             searchResults.textContent = '';
@@ -100,27 +131,55 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     function updateSelectedDisplay() {
+        // Update selected nodes display
         selectedNodesDiv.innerHTML = '';
         
         if (selectedNodes.size === 0) {
             selectedNodesDiv.innerHTML = '<div style="color: #95a5a6; font-size: 12px; padding: 5px;">No nodes selected</div>';
-            return;
+        } else {
+            selectedNodes.forEach(nodeName => {
+                const tag = document.createElement('span');
+                tag.className = 'selected-tag';
+                tag.textContent = nodeName;
+                tag.onclick = () => {
+                    selectedNodes.delete(nodeName);
+                    checkboxes.forEach(cb => {
+                        if (cb.value === nodeName) cb.checked = false;
+                    });
+                    updateSelectedDisplay();
+                    highlightNodes();
+                };
+                selectedNodesDiv.appendChild(tag);
+            });
         }
         
-        selectedNodes.forEach(nodeName => {
-            const tag = document.createElement('span');
-            tag.className = 'selected-tag';
-            tag.textContent = nodeName;
-            tag.onclick = () => {
-                selectedNodes.delete(nodeName);
-                checkboxes.forEach(cb => {
-                    if (cb.value === nodeName) cb.checked = false;
-                });
-                updateSelectedDisplay();
-                highlightNodes();
-            };
-            selectedNodesDiv.appendChild(tag);
-        });
+        // Update selected partitions display
+        selectedPartitionsDiv.innerHTML = '';
+        
+        if (selectedPartitions.size === 0) {
+            selectedPartitionsDiv.innerHTML = '<div style="color: #95a5a6; font-size: 12px; padding: 5px;">No partitions selected</div>';
+        } else {
+            selectedPartitions.forEach(partitionId => {
+                const numNodes = partitions[partitionId] ? partitions[partitionId].length : 0;
+                const label = partitionLabels[partitionId] || `Partition ${partitionId}`;
+                const tag = document.createElement('span');
+                tag.className = 'selected-tag';
+                tag.style.backgroundColor = '#2980b9';
+                tag.textContent = `${label} (${numNodes})`;
+                tag.onclick = () => {
+                    selectedPartitions.delete(partitionId);
+                    partitionCheckboxes.forEach(cb => {
+                        if (cb.value === partitionId) cb.checked = false;
+                    });
+                    updateSelectedDisplay();
+                    highlightNodes();
+                };
+                selectedPartitionsDiv.appendChild(tag);
+            });
+        }
+        
+        // Update control states based on partition selection
+        updatePartitionModeControls();
     }
     
     function updateFilterModeControls() {
@@ -156,6 +215,98 @@ document.addEventListener('DOMContentLoaded', function() {
                 sourceLabel.style.cursor = isExcludeMode ? 'not-allowed' : 'pointer';
             }
         }
+    }
+    
+    function updatePartitionModeControls() {
+        const hasPartitionsSelected = selectedPartitions.size > 0;
+        const hasNodesSelected = selectedNodes.size > 0;
+        
+        // Disable/enable edge type controls when partitions are selected
+        Object.values(edgeCheckboxes).forEach(checkbox => {
+            if (checkbox) {
+                checkbox.disabled = hasPartitionsSelected;
+                if (hasPartitionsSelected) {
+                    checkbox.checked = true; // Show all edge types
+                }
+                const label = checkbox.parentElement;
+                if (label) {
+                    label.style.opacity = hasPartitionsSelected ? '0.5' : '1';
+                    label.style.cursor = hasPartitionsSelected ? 'not-allowed' : 'pointer';
+                }
+            }
+        });
+        
+        // Disable/enable node filtering controls when partitions are selected
+        const selectionControls = document.getElementById('selection-controls');
+        if (selectionControls) {
+            selectionControls.style.opacity = hasPartitionsSelected ? '0.5' : '1';
+            selectionControls.style.pointerEvents = hasPartitionsSelected ? 'none' : 'auto';
+        }
+        
+        // Disable/enable search input when partitions are selected
+        if (searchInput) {
+            searchInput.disabled = hasPartitionsSelected;
+            searchInput.style.opacity = hasPartitionsSelected ? '0.5' : '1';
+            searchInput.style.cursor = hasPartitionsSelected ? 'not-allowed' : 'text';
+        }
+        
+        // Disable/enable node checkboxes when partitions are selected
+        checkboxes.forEach(cb => {
+            cb.disabled = hasPartitionsSelected;
+        });
+        
+        // Disable/enable dropdown items when partitions are selected
+        checkboxItems.forEach(item => {
+            item.style.opacity = hasPartitionsSelected ? '0.5' : '1';
+            item.style.pointerEvents = hasPartitionsSelected ? 'none' : 'auto';
+        });
+        
+        // Disable/enable leaf/source node selection when partitions are selected
+        const selectLeafNodesCheckbox = document.getElementById('select-leaf-nodes');
+        const selectSourceNodesCheckbox = document.getElementById('select-source-nodes');
+        
+        if (selectLeafNodesCheckbox) {
+            selectLeafNodesCheckbox.disabled = hasPartitionsSelected;
+            const leafLabel = selectLeafNodesCheckbox.parentElement;
+            if (leafLabel) {
+                leafLabel.style.opacity = hasPartitionsSelected ? '0.5' : '1';
+                leafLabel.style.cursor = hasPartitionsSelected ? 'not-allowed' : 'pointer';
+            }
+        }
+        
+        if (selectSourceNodesCheckbox) {
+            selectSourceNodesCheckbox.disabled = hasPartitionsSelected;
+            const sourceLabel = selectSourceNodesCheckbox.parentElement;
+            if (sourceLabel) {
+                sourceLabel.style.opacity = hasPartitionsSelected ? '0.5' : '1';
+                sourceLabel.style.cursor = hasPartitionsSelected ? 'not-allowed' : 'pointer';
+            }
+        }
+        
+        // Disable/enable partition filtering controls when nodes are selected
+        const partitionControls = document.getElementById('partition-controls');
+        if (partitionControls) {
+            partitionControls.style.opacity = hasNodesSelected ? '0.5' : '1';
+            partitionControls.style.pointerEvents = hasNodesSelected ? 'none' : 'auto';
+        }
+        
+        // Disable/enable partition search input when nodes are selected
+        if (partitionSearchInput) {
+            partitionSearchInput.disabled = hasNodesSelected;
+            partitionSearchInput.style.opacity = hasNodesSelected ? '0.5' : '1';
+            partitionSearchInput.style.cursor = hasNodesSelected ? 'not-allowed' : 'text';
+        }
+        
+        // Disable/enable partition checkboxes when nodes are selected
+        partitionCheckboxes.forEach(cb => {
+            cb.disabled = hasNodesSelected;
+        });
+        
+        // Disable/enable partition items when nodes are selected
+        partitionItems.forEach(item => {
+            item.style.opacity = hasNodesSelected ? '0.5' : '1';
+            item.style.pointerEvents = hasNodesSelected ? 'none' : 'auto';
+        });
     }
     
     function toggleNodeSelection(nodeNames, isSelected) {
@@ -205,7 +356,7 @@ document.addEventListener('DOMContentLoaded', function() {
     filterModeRadios.forEach(radio => {
         radio.addEventListener('change', function() {
             updateFilterModeControls();
-            if (selectedNodes.size > 0) highlightNodes();
+            if (selectedNodes.size > 0 || selectedPartitions.size > 0) highlightNodes();
         });
     });
     
@@ -243,6 +394,16 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
     
+    if (partitionSearchInput) {
+        partitionSearchInput.addEventListener('input', function() {
+            const filter = this.value.toLowerCase();
+            partitionItems.forEach(item => {
+                const label = item.querySelector('label').textContent.toLowerCase();
+                item.style.display = label.includes(filter) ? 'flex' : 'none';
+            });
+        });
+    }
+    
     checkboxes.forEach(checkbox => {
         checkbox.addEventListener('change', function() {
             if (this.checked) {
@@ -268,7 +429,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     btnClear.addEventListener('click', function() {
         selectedNodes.clear();
+        selectedPartitions.clear();
         checkboxes.forEach(cb => cb.checked = false);
+        partitionCheckboxes.forEach(cb => cb.checked = false);
         
         // Uncheck special selection checkboxes
         const selectLeafNodesCheckbox = document.getElementById('select-leaf-nodes');
@@ -300,6 +463,45 @@ document.addEventListener('DOMContentLoaded', function() {
     if (selectSourceNodesCheckbox && typeof sourceNodeNames !== 'undefined') {
         selectSourceNodesCheckbox.addEventListener('change', function() {
             toggleNodeSelection(sourceNodeNames, this.checked);
+        });
+    }
+
+    // ============================================================================
+    // EVENT HANDLERS - PARTITION FILTERING
+    // ============================================================================
+    
+    partitionCheckboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            if (this.checked) {
+                selectedPartitions.add(this.value);
+            } else {
+                selectedPartitions.delete(this.value);
+            }
+            updateSelectedDisplay();
+            highlightNodes();
+        });
+    });
+    
+    // Make clicking on partition item also toggle checkbox
+    partitionItems.forEach(item => {
+        item.addEventListener('click', function(e) {
+            if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'LABEL') {
+                const checkbox = this.querySelector('input[type="checkbox"]');
+                checkbox.checked = !checkbox.checked;
+                checkbox.dispatchEvent(new Event('change'));
+            }
+        });
+    });
+    
+    // ============================================================================
+    // EVENT HANDLERS - SCC CONTROLS
+    // ============================================================================
+
+    const sccToggle = document.getElementById('scc-toggle');
+
+    if (sccToggle && typeof sccs !== 'undefined' && sccs.length > 0) {
+        sccToggle.addEventListener('change', function() {
+            GraphSCC.toggleSccs(network, sccs, sccToggle);
         });
     }
     
@@ -334,11 +536,18 @@ document.addEventListener('DOMContentLoaded', function() {
     // INITIALIZATION - DEFAULT STATE
     // ============================================================================
     
-    // Clear selections
+    // Clear all selections
     selectedNodes.clear();
+    selectedPartitions.clear();
     checkboxes.forEach(cb => cb.checked = false);
+    partitionCheckboxes.forEach(cb => cb.checked = false);
     searchInput.value = '';
+    if (partitionSearchInput) partitionSearchInput.value = '';
     searchResults.textContent = '';
+    
+    // Clear leaf/source node selections (variables already declared above)
+    if (selectLeafNodesCheckbox) selectLeafNodesCheckbox.checked = false;
+    if (selectSourceNodesCheckbox) selectSourceNodesCheckbox.checked = false;
     
     // Set default edge type visibility
     if (edgeCheckboxes.letEdges) edgeCheckboxes.letEdges.checked = true;

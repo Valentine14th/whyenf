@@ -3,6 +3,7 @@ Utilities for building and manipulating the graph structure.
 """
 
 import json
+import networkx as nx
 from .config import NODE_COLORS, EDGE_COLORS
 
 
@@ -172,6 +173,89 @@ def add_implication_edges(net, implications, let_definition_names):
         edge_count += 1
     
     return edge_count
+
+
+def find_sccs(net):
+    """Find Strongly Connected Components in the graph."""
+    nx_graph = nx.DiGraph()
+    for node in net.nodes:
+        nx_graph.add_node(node['id'])
+    for edge in net.edges:
+        nx_graph.add_edge(edge['from'], edge['to'])
+    
+    sccs = [list(scc) for scc in nx.strongly_connected_components(nx_graph) if len(scc) > 1]
+    scc_map = {}
+    for i, scc in enumerate(sccs):
+        for node_id in scc:
+            scc_map[node_id] = i
+            
+    print(f"Found {len(sccs)} SCCs with more than one node.")
+    return sccs, scc_map
+
+
+def compute_backward_reachable_partitions(net):
+    """
+    Decompose the graph into successor-closed subgraphs.
+    
+    Each subgraph corresponds to the backward-reachable set of a leaf node 
+    in the condensed graph (DAG formed by collapsing SCCs into single nodes).
+    
+    Returns:
+        - sccs_all: List of all SCCs (list of node lists)
+        - scc_map_all: Dict mapping node_id to SCC index
+        - partitions: Dict mapping leaf SCC index to set of all reachable node IDs
+        - partition_labels: Dict mapping leaf SCC index to leaf node name
+        - condensed_graph: The condensed NetworkX graph
+    """
+    # Build networkx graph
+    nx_graph = nx.DiGraph()
+    for node in net.nodes:
+        nx_graph.add_node(node['id'])
+    for edge in net.edges:
+        nx_graph.add_edge(edge['from'], edge['to'])
+    
+    # Find all SCCs
+    sccs_all = list(nx.strongly_connected_components(nx_graph))
+    sccs_all = [list(scc) for scc in sccs_all]
+    scc_map_all = {}
+    for i, scc in enumerate(sccs_all):
+        for node_id in scc:
+            scc_map_all[node_id] = i
+    
+    # Create condensed graph (DAG of SCCs)
+    condensed = nx.condensation(nx_graph)
+    
+    # Find leaf nodes in condensed graph (no outgoing edges)
+    leaf_sccs = [node for node in condensed.nodes() if condensed.out_degree(node) == 0]
+    
+    # For each leaf SCC, compute backward-reachable set
+    partitions = {}
+    partition_labels = {}
+    for leaf_scc_idx in leaf_sccs:
+        # Get all SCCs that can reach this leaf SCC (predecessors in DAG)
+        reachable_sccs = nx.ancestors(condensed, leaf_scc_idx)
+        reachable_sccs.add(leaf_scc_idx)  # Include the leaf itself
+        
+        # Expand to original nodes
+        partition_nodes = set()
+        for scc_idx in reachable_sccs:
+            partition_nodes.update(sccs_all[scc_idx])
+        
+        partitions[leaf_scc_idx] = partition_nodes
+        
+        # Get a representative leaf node name (first node in the leaf SCC)
+        leaf_nodes = sccs_all[leaf_scc_idx]
+        partition_labels[leaf_scc_idx] = extract_node_name(sorted(leaf_nodes)[0])
+    
+    print(f"Found {len(sccs_all)} SCCs (including trivial ones)")
+    print(f"Found {len(leaf_sccs)} leaf SCCs in condensed graph")
+    print(f"Computed {len(partitions)} backward-reachable partitions")
+    
+    # Print partition statistics
+    for leaf_idx, nodes in partitions.items():
+        print(f"  Partition {partition_labels[leaf_idx]}: {len(nodes)} nodes")
+    
+    return sccs_all, scc_map_all, partitions, partition_labels, condensed
 
 
 def update_node_colors_for_graph_structure(net):

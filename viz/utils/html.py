@@ -11,7 +11,7 @@ def create_edge_control(control_id, label, color=None, checked=True):
     checked_attr = ' checked' if checked else ''
     indicator_style = f' style="background: {color};"' if color else ' class="implication"'
     return (
-        f'<label><input type="checkbox" id="{control_id}"{checked_attr} />'
+        f'<label style="font-size: 12px;"><input type="checkbox" id="{control_id}"{checked_attr} />'
         f'<span class="edge-label"><span class="edge-indicator"{indicator_style}>'
         f'</span>{label}</span></label>'
     )
@@ -44,25 +44,49 @@ def build_checkbox_items_html(node_names):
         items.append(
             f'<div class="checkbox-item">\n'
             f'    <input type="checkbox" id="node_{i}" value="{name}" />\n'
-            f'    <label for="node_{i}">{name}</label>\n'
+            f'    <label for="node_{i}" style="font-size: 12px;">{name}</label>\n'
             f'</div>'
         )
     return '\n                '.join(items)
 
 
+def build_partition_controls_html(partitions, partition_labels):
+    """Build HTML for partition selection controls."""
+    if not partitions:
+        return ""
+    
+    items = []
+    for i, partition_id in enumerate(sorted(partitions.keys(), key=int)):
+        num_nodes = len(partitions[partition_id])
+        label = partition_labels.get(partition_id, f"Partition {partition_id}")
+        items.append(
+            f'<div class="checkbox-item">\n'
+            f'    <input type="checkbox" id="partition_{i}" class="partition-checkbox" value="{partition_id}" />\n'
+            f'    <label for="partition_{i}" style="font-size: 12px;">{label} ({num_nodes} nodes)</label>\n'
+            f'</div>'
+        )
+    return '\n                    '.join(items)
+
+
 def load_and_populate_template(template_file, edge_controls_html, checkbox_items_html, 
-                               leaf_nodes_json, source_nodes_json):
+                               leaf_nodes_json, source_nodes_json,
+                               scc_map_json, sccs_json, partitions_json, partition_labels_json, partition_controls_html):
     """Load HTML template and replace placeholders with generated content."""
     with open(template_file, 'r') as f:
         widget_template = f.read()
-    
+
     # Replace placeholders in template
     widget_html = (widget_template
                    .replace('<!-- EDGE_CONTROLS_PLACEHOLDER -->', edge_controls_html)
                    .replace('<!-- CHECKBOX_ITEMS_PLACEHOLDER -->', checkbox_items_html)
+                   .replace('<!-- PARTITION_CONTROLS_PLACEHOLDER -->', partition_controls_html)
                    .replace('<!-- LEAF_NODES_JSON -->', leaf_nodes_json)
-                   .replace('<!-- SOURCE_NODES_JSON -->', source_nodes_json))
-    
+                   .replace('<!-- SOURCE_NODES_JSON -->', source_nodes_json)
+                   .replace('<!-- SCC_MAP_JSON -->', scc_map_json)
+                   .replace('<!-- SCCS_JSON -->', sccs_json)
+                   .replace('<!-- PARTITIONS_JSON -->', partitions_json)
+                   .replace('<!-- PARTITION_LABELS_JSON -->', partition_labels_json))
+
     return widget_html
 
 

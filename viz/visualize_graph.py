@@ -8,8 +8,8 @@ Supports both original and normal mode for different JSON formats.
 import json
 import os
 import argparse
-import webbrowser
 from pyvis.network import Network
+import networkx as nx
 
 from utils.extraction import (
     extract_predicates, extract_let_definitions, extract_implications,
@@ -19,15 +19,15 @@ from utils.config import PHYSICS_OPTIONS
 from utils.graph import (
     get_node_id, extract_node_name, add_predicate_nodes, add_let_definition_nodes,
     add_let_definition_edges, add_causality_edges, add_implication_edges,
-    update_node_colors_for_graph_structure, print_graph_statistics
+    update_node_colors_for_graph_structure, print_graph_statistics, compute_backward_reachable_partitions
 )
 from utils.html import (
-    build_edge_controls_html, build_checkbox_items_html,
+    build_edge_controls_html, build_checkbox_items_html, build_partition_controls_html,
     load_and_populate_template, inject_widget_into_graph_html
 )
 
 
-def create_let_graph(json_file, output_file, mode="original"):
+def create_graph(json_file, output_file, mode="original"):
     """Create PyVis graph from formula JSON showing LET definition dependencies or causality rules."""
     
     # Load JSON
@@ -114,6 +114,13 @@ def create_let_graph(json_file, output_file, mode="original"):
     
     implication_edge_count = add_implication_edges(net, implications, let_definition_names)
     print(f"Created {implication_edge_count} unique edges from {len(implications)} implications")
+
+    # Compute backward-reachable partitions and SCCs
+    sccs_all, scc_map_all, partitions, partition_labels, condensed = compute_backward_reachable_partitions(net)
+    
+    # Filter SCCs to only non-trivial ones (size > 1) for visualization
+    sccs = [scc for scc in sccs_all if len(scc) > 1]
+    scc_map = {node_id: idx for idx, scc in enumerate(sccs) for node_id in scc}
     
     # Update node colors based on graph structure (leaf/source nodes)
     leaf_nodes, source_nodes = update_node_colors_for_graph_structure(net)
@@ -127,6 +134,12 @@ def create_let_graph(json_file, output_file, mode="original"):
     all_node_names = sorted(list(predicate_only_names) + [defn['name'] for defn in definitions])
     leaf_node_names_json = json.dumps([extract_node_name(nid) for nid in leaf_nodes])
     source_node_names_json = json.dumps([extract_node_name(nid) for nid in source_nodes])
+    scc_map_json = json.dumps(scc_map)
+    sccs_json = json.dumps(sccs)
+    
+    # Prepare partition data (convert sets to lists for JSON serialization)
+    partitions_json = json.dumps({str(k): list(v) for k, v in partitions.items()})
+    partition_labels_json = json.dumps({str(k): v for k, v in partition_labels.items()})
     
     # Load template and generate HTML components
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -134,11 +147,13 @@ def create_let_graph(json_file, output_file, mode="original"):
     
     checkbox_items_html = build_checkbox_items_html(all_node_names)
     edge_controls_html = build_edge_controls_html(mode, len(definitions) > 0)
+    partition_controls_html = build_partition_controls_html(partitions, partition_labels)
     
     # Populate template with data
     widget_html = load_and_populate_template(
         template_file, edge_controls_html, checkbox_items_html,
-        leaf_node_names_json, source_node_names_json
+        leaf_node_names_json, source_node_names_json,
+        scc_map_json, sccs_json, partitions_json, partition_labels_json, partition_controls_html
     )
     
     # Inject widget into generated graph HTML
@@ -159,7 +174,7 @@ if __name__ == "__main__":
     parser.add_argument('input', help='Input JSON file')
     parser.add_argument('output', help='Output HTML file (will be created in viz/ directory)')
     parser.add_argument('--normal', action='store_true', 
-                       help='Process normal mode JSON (with CauByCau/CauBySup instead of LET definitions)')
+                       help='Process normal mode JSON (with CauByCau/CauBySup instead of simple implications)')
     
     args = parser.parse_args()
     
@@ -170,9 +185,4 @@ if __name__ == "__main__":
     output_basename = os.path.basename(args.output)
     output_path = os.path.join(script_dir, output_basename)
     
-    html_file = create_let_graph(args.input, output_path, mode=mode)
-    
-    # Open in browser
-    abs_path = os.path.abspath(html_file)
-    print(f"\nOpening {abs_path} in browser...")
-    webbrowser.open('file://' + abs_path)
+    create_graph(args.input, output_path, mode=mode)

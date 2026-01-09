@@ -9,25 +9,55 @@
 <body>
     <div id="search-container">
         <div id="search-header">
-            <span id="search-label">Select Events/Definitions</span>
+            <span id="search-label">Filters</span>
             <button id="toggle-btn">Hide</button>
         </div>
         <div id="search-content">
+            <div style="font-size: 13px; color: #2c3e50; margin-bottom: 10px; margin-top: 15px; font-weight: 600; border-bottom: 1px solid #e0e0e0; padding-bottom: 5px;">Filter Edges</div>
             <div id="edge-controls">
                 <!-- EDGE_CONTROLS_PLACEHOLDER -->
             </div>
+            <div style="font-size: 13px; color: #2c3e50; margin-bottom: 10px; margin-top: 15px; font-weight: 600; border-bottom: 1px solid #e0e0e0; padding-bottom: 5px;">Filter Nodes</div>
+            <div style="margin: 10px 0; padding: 8px; background: #f8f9fa; border-radius: 4px; border: 1px solid #dee2e6;">
+                <div style="font-size: 11px; color: #555; margin-bottom: 5px;">Filter mode:</div>
+                <label style="margin-bottom: 3px; display: block; font-size: 12px;">
+                    <input type="radio" name="filter-mode" value="include" checked />
+                    <span class="edge-label">Include (show selected & neighbors)</span>
+                </label>
+                <label style="margin-bottom: 0; display: block; font-size: 12px;">
+                    <input type="radio" name="filter-mode" value="exclude" />
+                    <span class="edge-label">Exclude (hide selected nodes)</span>
+                </label>
+            </div>
+            <div style="font-size: 12px; color: #555; margin-bottom: 8px; font-weight: 600;">Filter Partitions</div>
+            <div id="partition-controls">
+                <div id="scc-controls-container">
+                    <div class="control-group">
+                        <label>
+                            <input type="checkbox" id="scc-toggle" />
+                            Collapse SCCs
+                        </label>
+                    </div>
+                </div>
+                <input type="text" id="partition-search-input" placeholder="Filter partitions by name..." />
+                <div id="partition-list">
+                    <!-- PARTITION_CONTROLS_PLACEHOLDER -->
+                </div>
+                <div id="selected-partitions"></div>
+            </div>
+            <div style="font-size: 12px; color: #555; margin-bottom: 8px; font-weight: 600;">Filter Specific Nodes</div>
             <div id="selection-controls">
-                <div style="margin-top: 0px;">
+                <div style="margin-top: 3px;">
                     <div style="font-size: 11px; color: #555; margin-bottom: 5px;">Edge direction:</div>
-                    <label style="margin-bottom: 3px;">
+                    <label style="margin-bottom: 3px; font-size: 12px;">
                         <input type="radio" name="edge-direction" value="both" checked />
                         <span class="edge-label">Both</span>
                     </label>
-                    <label style="margin-bottom: 3px;">
+                    <label style="margin-bottom: 3px; font-size: 12px;">
                         <input type="radio" name="edge-direction" value="outgoing" />
                         <span class="edge-label">Outgoing only</span>
                     </label>
-                    <label style="margin-bottom: 3px;">
+                    <label style="margin-bottom: 3px; font-size: 12px;">
                         <input type="radio" name="edge-direction" value="incoming" />
                         <span class="edge-label">Incoming only</span>
                     </label>
@@ -41,17 +71,6 @@
                 <label>
                     <input type="checkbox" id="select-source-nodes" />
                     <span class="edge-label">Select all source nodes (purple, no incoming edges)</span>
-                </label>
-            </div>
-            <div style="margin: 10px 0; padding: 8px; background: #f8f9fa; border-radius: 4px; border: 1px solid #dee2e6;">
-                <div style="font-size: 11px; color: #555; margin-bottom: 5px; font-weight: 600;">Filter mode:</div>
-                <label style="margin-bottom: 3px; display: block;">
-                    <input type="radio" name="filter-mode" value="include" checked />
-                    <span class="edge-label">Include (show selected & neighbors)</span>
-                </label>
-                <label style="margin-bottom: 0; display: block;">
-                    <input type="radio" name="filter-mode" value="exclude" />
-                    <span class="edge-label">Exclude (hide selected nodes)</span>
                 </label>
             </div>
             <input type="text" id="search-input" placeholder="Filter by name..." />
@@ -88,11 +107,19 @@
         const leafNodeNames = <!-- LEAF_NODES_JSON -->;
         // Source nodes data
         const sourceNodeNames = <!-- SOURCE_NODES_JSON -->;
+        // SCC data
+        const sccMap = <!-- SCC_MAP_JSON -->;
+        const sccs = <!-- SCCS_JSON -->;
+        // Partition data
+        const partitions = <!-- PARTITIONS_JSON -->;
+        const partitionLabels = <!-- PARTITION_LABELS_JSON -->;
     </script>
     <script src="utils/edges.js"></script>
     <script src="utils/nodes.js"></script>
     <script src="utils/filters.js"></script>
     <script src="utils/rankings.js"></script>
+    <script src="utils/scc.js"></script>
+    <script src="utils/partitions.js"></script>
     <script src="graph_widgets.js"></script>
 </body>
 </html>
