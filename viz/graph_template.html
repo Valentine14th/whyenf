@@ -15,7 +15,7 @@
         <div id="search-content">
             <div style="font-size: 13px; color: #2c3e50; margin-bottom: 10px; margin-top: 15px; font-weight: 600; border-bottom: 1px solid #e0e0e0; padding-bottom: 5px;">Filter Edges</div>
             <div id="edge-controls">
-                <!-- EDGE_CONTROLS_PLACEHOLDER -->
+                {{ edge_controls }}
             </div>
             <div style="font-size: 13px; color: #2c3e50; margin-bottom: 10px; margin-top: 15px; font-weight: 600; border-bottom: 1px solid #e0e0e0; padding-bottom: 5px;">Filter Nodes</div>
             <div style="margin: 10px 0; padding: 8px; background: #f8f9fa; border-radius: 4px; border: 1px solid #dee2e6;">
@@ -41,7 +41,7 @@
                 </div>
                 <input type="text" id="partition-search-input" placeholder="Filter partitions by name..." />
                 <div id="partition-list">
-                    <!-- PARTITION_CONTROLS_PLACEHOLDER -->
+                    {{ partition_controls }}
                 </div>
                 <div id="selected-partitions"></div>
             </div>
@@ -75,7 +75,7 @@
             </div>
             <input type="text" id="search-input" placeholder="Filter by name..." />
             <div id="dropdown-list">
-                <!-- CHECKBOX_ITEMS_PLACEHOLDER -->
+                {{ checkbox_items }}
             </div>
             <div id="selected-nodes"></div>
             <div id="button-container">
@@ -103,16 +103,23 @@
     </div>
     
     <script type="text/javascript">
-        // Leaf nodes data
-        const leafNodeNames = <!-- LEAF_NODES_JSON -->;
-        // Source nodes data
-        const sourceNodeNames = <!-- SOURCE_NODES_JSON -->;
-        // SCC data
-        const sccMap = <!-- SCC_MAP_JSON -->;
-        const sccs = <!-- SCCS_JSON -->;
-        // Partition data
-        const partitions = <!-- PARTITIONS_JSON -->;
-        const partitionLabels = <!-- PARTITION_LABELS_JSON -->;
+        // Graph data configuration
+        var graphData = {
+            leafNodeNames: {{ leaf_nodes_json }},
+            sourceNodeNames: {{ source_nodes_json }},
+            sccMap: {{ scc_map_json }},
+            sccs: {{ sccs_json }},
+            partitions: {{ partitions_json }},
+            partitionLabels: {{ partition_labels_json }}
+        };
+        
+        // Legacy compatibility - keep global variables for existing code
+        var leafNodeNames = graphData.leafNodeNames;
+        var sourceNodeNames = graphData.sourceNodeNames;
+        var sccMap = graphData.sccMap;
+        var sccs = graphData.sccs;
+        var partitions = graphData.partitions;
+        var partitionLabels = graphData.partitionLabels;
     </script>
     <script src="utils/edges.js"></script>
     <script src="utils/nodes.js"></script>

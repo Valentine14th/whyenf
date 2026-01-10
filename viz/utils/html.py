@@ -4,6 +4,7 @@ Utilities for generating HTML components and templates.
 
 import os
 import json
+from jinja2 import Template
 
 
 def create_edge_control(control_id, label, color=None, checked=True):
@@ -73,19 +74,21 @@ def load_and_populate_template(template_file, edge_controls_html, checkbox_items
                                scc_map_json, sccs_json, partitions_json, partition_labels_json, partition_controls_html):
     """Load HTML template and replace placeholders with generated content."""
     with open(template_file, 'r') as f:
-        widget_template = f.read()
+        template_content = f.read()
 
-    # Replace placeholders in template
-    widget_html = (widget_template
-                   .replace('<!-- EDGE_CONTROLS_PLACEHOLDER -->', edge_controls_html)
-                   .replace('<!-- CHECKBOX_ITEMS_PLACEHOLDER -->', checkbox_items_html)
-                   .replace('<!-- PARTITION_CONTROLS_PLACEHOLDER -->', partition_controls_html)
-                   .replace('<!-- LEAF_NODES_JSON -->', leaf_nodes_json)
-                   .replace('<!-- SOURCE_NODES_JSON -->', source_nodes_json)
-                   .replace('<!-- SCC_MAP_JSON -->', scc_map_json)
-                   .replace('<!-- SCCS_JSON -->', sccs_json)
-                   .replace('<!-- PARTITIONS_JSON -->', partitions_json)
-                   .replace('<!-- PARTITION_LABELS_JSON -->', partition_labels_json))
+    template = Template(template_content)
+    
+    widget_html = template.render(
+        edge_controls=edge_controls_html,
+        checkbox_items=checkbox_items_html,
+        partition_controls=partition_controls_html,
+        leaf_nodes_json=leaf_nodes_json,
+        source_nodes_json=source_nodes_json,
+        scc_map_json=scc_map_json,
+        sccs_json=sccs_json,
+        partitions_json=partitions_json,
+        partition_labels_json=partition_labels_json
+    )
 
     return widget_html
 
