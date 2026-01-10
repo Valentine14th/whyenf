@@ -46,11 +46,39 @@ const GraphEdges = (function() {
         return false;
     }
 
+    function handleEdgeVisibilityUpdate(network, selectedPartitions, selectedNodes, partitions, isEdgeHidden, highlightCallback, filterDropdownCallback, updateRankingsCallback) {
+        // If partitions are selected, apply partition filter first
+        if (selectedPartitions.size > 0) {
+            GraphPartitions.applyPartitionFilter(network, selectedPartitions, partitions, isEdgeHidden);
+        }
+        
+        var connectedNodes = GraphFilters.updateEdgeVisibility(network, selectedNodes, isEdgeHidden, highlightCallback);
+        filterDropdownCallback(connectedNodes);
+        updateRankingsCallback();
+    }
+    
+    function setupEdgeTypeHandlers(edgeCheckboxes, handleEdgeVisibilityUpdateCallback) {
+        if (edgeCheckboxes.letEdges) {
+            edgeCheckboxes.letEdges.addEventListener('change', handleEdgeVisibilityUpdateCallback);
+        }
+        if (edgeCheckboxes.implicationEdges) {
+            edgeCheckboxes.implicationEdges.addEventListener('change', handleEdgeVisibilityUpdateCallback);
+        }
+        if (edgeCheckboxes.cauByCauEdges) {
+            edgeCheckboxes.cauByCauEdges.addEventListener('change', handleEdgeVisibilityUpdateCallback);
+        }
+        if (edgeCheckboxes.cauBySupEdges) {
+            edgeCheckboxes.cauBySupEdges.addEventListener('change', handleEdgeVisibilityUpdateCallback);
+        }
+    }
+
     return {
         EdgeColors,
         getEdgeColor,
         classifyEdge,
         getEdgeTypeVisibilitySettings,
-        isEdgeHiddenByTypeFilter
+        isEdgeHiddenByTypeFilter,
+        handleEdgeVisibilityUpdate,
+        setupEdgeTypeHandlers
     };
 })();
