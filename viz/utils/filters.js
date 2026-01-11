@@ -156,6 +156,7 @@ const GraphFilters = (function() {
                 return { ...node, hidden: !isConnected };
             });
             network.body.data.nodes.update(updatedNodes);
+            GraphSCC.refreshSccs(network, sccs);
         }
         
         return connectedNodes;

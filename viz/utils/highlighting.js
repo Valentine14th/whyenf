@@ -17,6 +17,7 @@ var GraphHighlighting = (function() {
             
             GraphUIState.updateSearchResults(searchResults, result, selectedNodes, selectedPartitions);
             updateRankingsCallback();
+            GraphSCC.refreshSccs(network, sccs);
             return;
         }
         
@@ -24,6 +25,7 @@ var GraphHighlighting = (function() {
             network.selectNodes([]);
             searchResults.textContent = '';
             GraphFilters.updateEdgeVisibility(network, selectedNodes, isEdgeHidden, function() {});
+            GraphSCC.refreshSccs(network, sccs);
             return;
         }
         
@@ -50,6 +52,7 @@ var GraphHighlighting = (function() {
         
         GraphUIState.updateSearchResults(searchResults, result, selectedNodes, selectedPartitions);
         updateRankingsCallback();
+        GraphSCC.refreshSccs(network, sccs);
     }
     
     return {

@@ -20,16 +20,29 @@ const GraphSCC = (function() {
     function clusterSccs(network, sccs) {
         sccClusters = {};
         sccs.forEach((scc, i) => {
+            // Check if any nodes in the SCC are visible
+            const allNodes = network.body.data.nodes.get();
+            const visibleNodesInScc = scc.filter(nodeId => {
+                const node = allNodes.find(n => n.id === nodeId);
+                return node && !node.hidden;
+            });
+
+            // Only cluster if at least one node in the SCC is visible
+            if (visibleNodesInScc.length === 0) {
+                return;
+            }
+
             const clusterId = `scc-${i}`;
             sccClusters[i] = clusterId;
             const clusterOptions = {
-                joinCondition: (nodeOptions) => scc.includes(nodeOptions.id),
+                joinCondition: (nodeOptions) => scc.includes(nodeOptions.id) && !nodeOptions.hidden,
                 clusterNodeProperties: {
                     id: clusterId,
-                    label: `SCC ${i + 1} (${scc.length} nodes)`,
+                    label: `SCC ${i + 1} (${visibleNodesInScc.length} nodes)`,
                     shape: 'box',
                     color: '#f0ad4e',
                     borderWidth: 2,
+                    hidden: false,  // Ensure cluster node is visible when created
                 },
             };
             network.cluster(clusterOptions);
@@ -45,8 +58,24 @@ const GraphSCC = (function() {
         sccClusters = {};
     }
 
+    function refreshSccs(network, sccs) {
+        // Check if SCCs exist, are defined, and are currently collapsed
+        if (typeof sccs === 'undefined' || !sccs || sccs.length === 0 || !isSccCollapsed) {
+            return;
+        }
+        // Re-cluster SCCs with updated visibility
+        openAllClusters(network);
+        clusterSccs(network, sccs);
+    }
+
+    function getCollapsedState() {
+        return isSccCollapsed;
+    }
+
     return {
-        toggleSccs
+        toggleSccs,
+        refreshSccs,
+        getCollapsedState
     };
 
 })();
