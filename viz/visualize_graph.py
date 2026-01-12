@@ -19,7 +19,7 @@ from utils.config import PHYSICS_OPTIONS
 from utils.graph import (
     get_node_id, extract_node_name, add_predicate_nodes, add_let_definition_nodes,
     add_let_definition_edges, add_causality_edges, add_implication_edges,
-    update_node_colors_for_graph_structure, print_graph_statistics, compute_backward_reachable_partitions
+    update_node_colors_for_graph_structure, print_graph_statistics, compute_successor_closed_partitions
 )
 from utils.html import (
     build_edge_controls_html, build_checkbox_items_html, build_partition_controls_html,
@@ -116,7 +116,7 @@ def create_graph(json_file, output_file, mode="original"):
     print(f"Created {implication_edge_count} unique edges from {len(implications)} implications")
 
     # Compute backward-reachable partitions and SCCs
-    sccs_all, scc_map_all, partitions, partition_labels, condensed = compute_backward_reachable_partitions(net)
+    sccs_all, scc_map_all, partitions, partition_labels, condensed = compute_successor_closed_partitions(net)
     
     # Filter SCCs to only non-trivial ones (size > 1) for visualization
     sccs = [scc for scc in sccs_all if len(scc) > 1]

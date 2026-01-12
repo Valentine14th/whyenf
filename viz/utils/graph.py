@@ -193,18 +193,20 @@ def find_sccs(net):
     return sccs, scc_map
 
 
-def compute_backward_reachable_partitions(net):
+def compute_successor_closed_partitions(net):
     """
     Decompose the graph into successor-closed subgraphs.
     
-    Each subgraph corresponds to the backward-reachable set of a leaf node 
+    Each subgraph corresponds to the forward-reachable set of a source node 
     in the condensed graph (DAG formed by collapsing SCCs into single nodes).
+    A partition is successor-closed: if a node is in the partition, all its 
+    successors are also in the partition.
     
     Returns:
         - sccs_all: List of all SCCs (list of node lists)
         - scc_map_all: Dict mapping node_id to SCC index
-        - partitions: Dict mapping leaf SCC index to set of all reachable node IDs
-        - partition_labels: Dict mapping leaf SCC index to leaf node name
+        - partitions: Dict mapping source SCC index to set of all reachable node IDs
+        - partition_labels: Dict mapping source SCC index to source node name
         - condensed_graph: The condensed NetworkX graph
     """
     # Build networkx graph
@@ -225,37 +227,80 @@ def compute_backward_reachable_partitions(net):
     # Create condensed graph (DAG of SCCs)
     condensed = nx.condensation(nx_graph)
     
-    # Find leaf nodes in condensed graph (no outgoing edges)
-    leaf_sccs = [node for node in condensed.nodes() if condensed.out_degree(node) == 0]
+    # Find source nodes in condensed graph (no incoming edges)
+    source_sccs = [node for node in condensed.nodes() if condensed.in_degree(node) == 0]
     
-    # For each leaf SCC, compute backward-reachable set
+    # For each source SCC, compute forward-reachable set (successor-closed)
     partitions = {}
     partition_labels = {}
-    for leaf_scc_idx in leaf_sccs:
-        # Get all SCCs that can reach this leaf SCC (predecessors in DAG)
-        reachable_sccs = nx.ancestors(condensed, leaf_scc_idx)
-        reachable_sccs.add(leaf_scc_idx)  # Include the leaf itself
+    for source_scc_idx in source_sccs:
+        # Get all SCCs reachable from this source SCC (descendants in DAG)
+        reachable_sccs = nx.descendants(condensed, source_scc_idx)
+        reachable_sccs.add(source_scc_idx)  # Include the source itself
         
         # Expand to original nodes
         partition_nodes = set()
         for scc_idx in reachable_sccs:
             partition_nodes.update(sccs_all[scc_idx])
         
-        partitions[leaf_scc_idx] = partition_nodes
+        partitions[source_scc_idx] = partition_nodes
         
-        # Get a representative leaf node name (first node in the leaf SCC)
-        leaf_nodes = sccs_all[leaf_scc_idx]
-        partition_labels[leaf_scc_idx] = extract_node_name(sorted(leaf_nodes)[0])
+        # Get a representative source node name (first node in the source SCC)
+        source_nodes = sccs_all[source_scc_idx]
+        partition_labels[source_scc_idx] = extract_node_name(sorted(source_nodes)[0])
+    
+    # Merge partitions with identical node sets (excluding the source nodes themselves)
+    # Group partitions by their node sets without source nodes (frozenset for hashability)
+    node_set_to_sources = {}
+    for source_idx, nodes in partitions.items():
+        # Exclude the source SCC nodes from comparison
+        source_scc_nodes = set(sccs_all[source_idx])
+        nodes_without_source = nodes - source_scc_nodes
+        frozen_nodes = frozenset(nodes_without_source)
+        
+        if frozen_nodes not in node_set_to_sources:
+            node_set_to_sources[frozen_nodes] = []
+        node_set_to_sources[frozen_nodes].append(source_idx)
+    
+    # Create merged partitions and labels
+    merged_partitions = {}
+    merged_labels = {}
+    for frozen_nodes, source_indices in node_set_to_sources.items():
+        # Use the first source index as the key for the merged partition
+        key_idx = source_indices[0]
+        # Include all source nodes from all merged partitions
+        all_nodes = set(frozen_nodes)
+        for idx in source_indices:
+            all_nodes.update(sccs_all[idx])
+        merged_partitions[key_idx] = all_nodes
+        
+        # Create label combining all source names with node count
+        source_names = sorted([partition_labels[idx] for idx in source_indices])
+        if len(source_names) == 1:
+            label_base = source_names[0]
+        else:
+            label_base = f"{', '.join(source_names[:-1])} & {source_names[-1]}"
+        merged_labels[key_idx] = f"{label_base} ({len(all_nodes) - len(source_names)} nodes, {len(source_names)} source{'s' if len(source_names) > 1 else ''})"
     
     print(f"Found {len(sccs_all)} SCCs (including trivial ones)")
-    print(f"Found {len(leaf_sccs)} leaf SCCs in condensed graph")
-    print(f"Computed {len(partitions)} backward-reachable partitions")
+    print(f"Found {len(source_sccs)} source SCCs in condensed graph")
+    print(f"Computed {len(partitions)} initial successor-closed partitions")
+    print(f"Merged into {len(merged_partitions)} unique partitions")
     
     # Print partition statistics
-    for leaf_idx, nodes in partitions.items():
-        print(f"  Partition {partition_labels[leaf_idx]}: {len(nodes)} nodes")
+    for partition_idx, nodes in merged_partitions.items():
+        # Calculate nodes excluding source nodes
+        source_scc_nodes = set()
+        # Find all source indices that were merged into this partition
+        for frozen_nodes, source_indices in node_set_to_sources.items():
+            if source_indices[0] == partition_idx:
+                for idx in source_indices:
+                    source_scc_nodes.update(sccs_all[idx])
+                break
+        nodes_without_sources = nodes - source_scc_nodes
+        print(f"  Partition {merged_labels[partition_idx]}: {len(nodes_without_sources)} nodes (+ {len(source_scc_nodes)} source)")
     
-    return sccs_all, scc_map_all, partitions, partition_labels, condensed
+    return sccs_all, scc_map_all, merged_partitions, merged_labels, condensed
 
 
 def update_node_colors_for_graph_structure(net):

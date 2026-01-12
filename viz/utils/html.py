@@ -58,12 +58,11 @@ def build_partition_controls_html(partitions, partition_labels):
     
     items = []
     for i, partition_id in enumerate(sorted(partitions.keys(), key=int)):
-        num_nodes = len(partitions[partition_id])
         label = partition_labels.get(partition_id, f"Partition {partition_id}")
         items.append(
             f'<div class="checkbox-item">\n'
             f'    <input type="checkbox" id="partition_{i}" class="partition-checkbox" value="{partition_id}" />\n'
-            f'    <label for="partition_{i}" style="font-size: 12px;">{label} ({num_nodes} nodes)</label>\n'
+            f'    <label for="partition_{i}" style="font-size: 12px;">{label}</label>\n'
             f'</div>'
         )
     return '\n                    '.join(items)

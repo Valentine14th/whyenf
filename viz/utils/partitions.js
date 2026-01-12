@@ -131,49 +131,29 @@ const GraphPartitions = (function() {
             
             return { visibleCount, excludedCount, mode: 'exclude' };
         } else {
-            // Include mode: show partition nodes and their neighbors based on direction
-            const allEdges = network.body.data.edges.get();
-            const connectedNodeIds = new Set(partitionNodeIds);
-            
-            // Build neighborhood based on edge direction
-            allEdges.forEach(edge => {
-                if (isEdgeHidden(edge)) return;
-                
-                const fromInPartition = partitionNodeIds.has(edge.from);
-                const toInPartition = partitionNodeIds.has(edge.to);
-                
-                if (edgeDirection === 'both') {
-                    if (fromInPartition) connectedNodeIds.add(edge.to);
-                    if (toInPartition) connectedNodeIds.add(edge.from);
-                } else if (edgeDirection === 'outgoing') {
-                    if (fromInPartition) connectedNodeIds.add(edge.to);
-                } else if (edgeDirection === 'incoming') {
-                    if (toInPartition) connectedNodeIds.add(edge.from);
-                }
-            });
-            
-            // Update node visibility
+            // Include mode: show only partition nodes and edges between them
             const allNodes = network.body.data.nodes.get();
             let selectedCount = partitionNodeIds.size;
-            let neighborCount = connectedNodeIds.size - partitionNodeIds.size;
             
             const nodeUpdates = allNodes.map(node => {
-                const shouldShow = connectedNodeIds.has(node.id);
+                const shouldShow = partitionNodeIds.has(node.id);
                 return {id: node.id, hidden: !shouldShow};
             });
             network.body.data.nodes.update(nodeUpdates);
             
-            // Update edge visibility
+            // Update edge visibility - only show edges between partition nodes
+            const allEdges = network.body.data.edges.get();
             const edgeUpdates = allEdges.map(edge => {
-                const fromVisible = connectedNodeIds.has(edge.from);
-                const toVisible = connectedNodeIds.has(edge.to);
+                const fromInPartition = partitionNodeIds.has(edge.from);
+                const toInPartition = partitionNodeIds.has(edge.to);
                 const typeHidden = isEdgeHidden(edge);
-                const hidden = !fromVisible || !toVisible || typeHidden;
+                // Only show edge if both endpoints are in the partition
+                const hidden = !fromInPartition || !toInPartition || typeHidden;
                 return {id: edge.id, hidden: hidden};
             });
             network.body.data.edges.update(edgeUpdates);
             
-            return { selectedCount, neighborCount, mode: 'include' };
+            return { selectedCount, neighborCount: 0, mode: 'include' };
         }
     }
 
