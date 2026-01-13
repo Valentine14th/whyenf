@@ -287,6 +287,23 @@ def _merge_partitions(partitions, partition_labels, sccs_all, anchor_type="sourc
     return merged_partitions, merged_labels, node_set_to_anchors
 
 
+def _print_partition_statistics(sccs_all, anchor_sccs, partitions, merged_partitions, partition_type):
+    """Print partition computation statistics.
+    
+    Args:
+        sccs_all: List of all SCCs
+        anchor_sccs: List of anchor SCC indices (sources or leaves)
+        partitions: Dict of initial partitions before merging
+        merged_partitions: Dict of partitions after merging
+        partition_type: "source" or "leaf" for display purposes
+    """
+    print(f"\nPartition Statistics ({partition_type}-based):")
+    print(f"Found {len(sccs_all)} SCCs (including trivial ones)")
+    print(f"Found {len(anchor_sccs)} {partition_type} SCCs in condensed graph")
+    print(f"Computed {len(partitions)} initial {partition_type}-based partitions")
+    print(f"Merged into {len(merged_partitions)} unique partitions\n")
+
+
 def compute_source_partitions(net):
     """
     Compute source-based partitions (forward-reachable, successor-closed subgraphs).
@@ -328,22 +345,7 @@ def compute_source_partitions(net):
         partitions, partition_labels, sccs_all, anchor_type="source"
     )
     
-    
-    print(f"Found {len(sccs_all)} SCCs (including trivial ones)")
-    print(f"Found {len(source_sccs)} source SCCs in condensed graph")
-    print(f"Computed {len(partitions)} initial source-based partitions")
-    print(f"Merged into {len(merged_partitions)} unique partitions")
-    
-    # Print partition statistics
-    for partition_idx, nodes in merged_partitions.items():
-        source_scc_nodes = set()
-        for frozen_nodes, source_indices in node_set_to_anchors.items():
-            if source_indices[0] == partition_idx:
-                for idx in source_indices:
-                    source_scc_nodes.update(sccs_all[idx])
-                break
-        nodes_without_sources = nodes - source_scc_nodes
-        print(f"  Partition {merged_labels[partition_idx]}: {len(nodes_without_sources)} nodes (+ {len(source_scc_nodes)} source)")
+    _print_partition_statistics(sccs_all, source_sccs, partitions, merged_partitions, "source")
     
     stats = {
         'initial_count': len(partitions),
@@ -401,21 +403,7 @@ def compute_leaf_partitions(net):
         partitions, partition_labels, sccs_all, anchor_type="leaf"
     )
     
-    print(f"Found {len(sccs_all)} SCCs (including trivial ones)")
-    print(f"Found {len(leaf_sccs)} leaf SCCs in condensed graph")
-    print(f"Computed {len(partitions)} initial leaf-based partitions")
-    print(f"Merged into {len(merged_partitions)} unique partitions")
-    
-    # Print partition statistics
-    for partition_idx, nodes in merged_partitions.items():
-        leaf_scc_nodes = set()
-        for frozen_nodes, leaf_indices in node_set_to_anchors.items():
-            if leaf_indices[0] == partition_idx:
-                for idx in leaf_indices:
-                    leaf_scc_nodes.update(sccs_all[idx])
-                break
-        nodes_without_leafs = nodes - leaf_scc_nodes
-        print(f"  Partition {merged_labels[partition_idx]}: {len(nodes_without_leafs)} nodes (+ {len(leaf_scc_nodes)} leaf)")
+    _print_partition_statistics(sccs_all, leaf_sccs, partitions, merged_partitions, "leaf")
     
     stats = {
         'initial_count': len(partitions),
