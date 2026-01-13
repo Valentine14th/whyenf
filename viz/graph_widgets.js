@@ -24,6 +24,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Filter controls
     var edgeDirectionRadios = document.getElementsByName('edge-direction');
     var filterModeRadios = document.getElementsByName('filter-mode');
+    var partitionTypeRadios = document.getElementsByName('partition-type');
     
     // Dropdown items
     var checkboxItems = dropdownList.querySelectorAll('.checkbox-item');
@@ -121,6 +122,9 @@ document.addEventListener('DOMContentLoaded', function() {
     var sccToggle = document.getElementById('scc-toggle');
     GraphEventHandlers.setupSCCHandler(sccToggle, sccs, network);
     
+    // Partition type toggle
+    GraphEventHandlers.setupPartitionTypeHandler(partitionTypeRadios, sourcePartitions, sourcePartitionLabels, leafPartitions, leafPartitionLabels, selectedPartitions, updateSelectedDisplay, highlightNodes);
+    
     // Rankings widget
     var rankingsToggleBtn = document.getElementById('rankings-toggle-btn');
     var rankingsContent = document.getElementById('rankings-content');
@@ -155,6 +159,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // Set default edge direction
     edgeDirectionRadios.forEach(function(radio) {
         if (radio.value === 'both') radio.checked = true;
+    });
+    
+    // Set default partition type to source
+    partitionTypeRadios.forEach(function(radio) {
+        if (radio.value === 'source') radio.checked = true;
     });
     
     // Initialize edge direction availability based on filter mode

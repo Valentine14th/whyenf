@@ -19,7 +19,8 @@ from utils.config import PHYSICS_OPTIONS
 from utils.graph import (
     get_node_id, extract_node_name, add_predicate_nodes, add_let_definition_nodes,
     add_let_definition_edges, add_causality_edges, add_implication_edges,
-    update_node_colors_for_graph_structure, print_graph_statistics, compute_successor_closed_partitions
+    update_node_colors_for_graph_structure, print_graph_statistics, compute_source_partitions,
+    compute_leaf_partitions
 )
 from utils.html import (
     build_edge_controls_html, build_checkbox_items_html, build_partition_controls_html,
@@ -115,8 +116,9 @@ def create_graph(json_file, output_file, mode="original"):
     implication_edge_count = add_implication_edges(net, implications, let_definition_names)
     print(f"Created {implication_edge_count} unique edges from {len(implications)} implications")
 
-    # Compute backward-reachable partitions and SCCs
-    sccs_all, scc_map_all, partitions, partition_labels, condensed = compute_successor_closed_partitions(net)
+    # Compute both source-based and leaf-based partitions
+    sccs_all, scc_map_all, source_partitions, source_partition_labels, condensed, source_stats = compute_source_partitions(net)
+    _, _, leaf_partitions, leaf_partition_labels, _, leaf_stats = compute_leaf_partitions(net)
     
     # Filter SCCs to only non-trivial ones (size > 1) for visualization
     sccs = [scc for scc in sccs_all if len(scc) > 1]
@@ -138,8 +140,12 @@ def create_graph(json_file, output_file, mode="original"):
     sccs_json = json.dumps(sccs)
     
     # Prepare partition data (convert sets to lists for JSON serialization)
-    partitions_json = json.dumps({str(k): list(v) for k, v in partitions.items()})
-    partition_labels_json = json.dumps({str(k): v for k, v in partition_labels.items()})
+    source_partitions_json = json.dumps({str(k): list(v) for k, v in source_partitions.items()})
+    source_partition_labels_json = json.dumps({str(k): v for k, v in source_partition_labels.items()})
+    leaf_partitions_json = json.dumps({str(k): list(v) for k, v in leaf_partitions.items()})
+    leaf_partition_labels_json = json.dumps({str(k): v for k, v in leaf_partition_labels.items()})
+    source_stats_json = json.dumps(source_stats)
+    leaf_stats_json = json.dumps(leaf_stats)
     
     # Load template and generate HTML components
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -147,13 +153,15 @@ def create_graph(json_file, output_file, mode="original"):
     
     checkbox_items_html = build_checkbox_items_html(all_node_names)
     edge_controls_html = build_edge_controls_html(mode, len(definitions) > 0)
-    partition_controls_html = build_partition_controls_html(partitions, partition_labels)
+    partition_controls_html = build_partition_controls_html(source_partitions, source_partition_labels)
     
     # Populate template with data
     widget_html = load_and_populate_template(
         template_file, edge_controls_html, checkbox_items_html,
         leaf_node_names_json, source_node_names_json,
-        scc_map_json, sccs_json, partitions_json, partition_labels_json, partition_controls_html
+        scc_map_json, sccs_json, source_partitions_json, source_partition_labels_json,
+        leaf_partitions_json, leaf_partition_labels_json, partition_controls_html,
+        source_stats_json, leaf_stats_json
     )
     
     # Inject widget into generated graph HTML
