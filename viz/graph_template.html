@@ -39,7 +39,11 @@
                     </label>
                     <label style="margin-bottom: 3px; display: block; font-size: 12px;">
                         <input type="radio" name="partition-type" value="leaf" />
-                        <span class="edge-label">Leaf-based (backward-reachable)</span>
+                        <span class="edge-label">Leaf-based (backward + successor-closed)</span>
+                    </label>
+                    <label style="margin-bottom: 3px; display: block; font-size: 12px;">
+                        <input type="radio" name="partition-type" value="backward" />
+                        <span class="edge-label">Backward-reachable (backward only)</span>
                     </label>
                     <div id="partition-stats" style="font-size: 10px; color: #666; margin-top: 6px; padding-top: 6px; border-top: 1px solid #dee2e6;">
                     </div>
@@ -126,8 +130,11 @@
             sourcePartitionLabels: {{ source_partition_labels_json }},
             leafPartitions: {{ leaf_partitions_json }},
             leafPartitionLabels: {{ leaf_partition_labels_json }},
+            backwardPartitions: {{ backward_partitions_json }},
+            backwardPartitionLabels: {{ backward_partition_labels_json }},
             sourceStats: {{ source_stats_json }},
-            leafStats: {{ leaf_stats_json }}
+            leafStats: {{ leaf_stats_json }},
+            backwardStats: {{ backward_stats_json }}
         };
         
         // Legacy compatibility - keep global variables for existing code
@@ -139,8 +146,11 @@
         var sourcePartitionLabels = graphData.sourcePartitionLabels;
         var leafPartitions = graphData.leafPartitions;
         var leafPartitionLabels = graphData.leafPartitionLabels;
+        var backwardPartitions = graphData.backwardPartitions;
+        var backwardPartitionLabels = graphData.backwardPartitionLabels;
         var sourceStats = graphData.sourceStats;
         var leafStats = graphData.leafStats;
+        var backwardStats = graphData.backwardStats;
         
         // Start with source partitions
         var partitions = sourcePartitions;

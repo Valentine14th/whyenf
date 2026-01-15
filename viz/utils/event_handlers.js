@@ -173,7 +173,7 @@ var GraphEventHandlers = (function() {
         }
     }
     
-    function setupPartitionTypeHandler(partitionTypeRadios, sourcePartitions, sourcePartitionLabels, leafPartitions, leafPartitionLabels, selectedPartitions, updateCallback, highlightCallback) {
+    function setupPartitionTypeHandler(partitionTypeRadios, sourcePartitions, sourcePartitionLabels, leafPartitions, leafPartitionLabels, backwardPartitions, backwardPartitionLabels, selectedPartitions, updateCallback, highlightCallback) {
         // Function to update stats display
         function updateStatsDisplay(stats) {
             var statsDiv = document.getElementById('partition-stats');
@@ -204,6 +204,10 @@ var GraphEventHandlers = (function() {
                     window.partitions = leafPartitions;
                     window.partitionLabels = leafPartitionLabels;
                     updateStatsDisplay(window.leafStats);
+                } else if (this.value === 'backward') {
+                    window.partitions = backwardPartitions;
+                    window.partitionLabels = backwardPartitionLabels;
+                    updateStatsDisplay(window.backwardStats);
                 }
                 
                 // Rebuild partition list HTML

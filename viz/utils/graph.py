@@ -226,14 +226,14 @@ def _build_graph_and_compute_sccs(net):
 def _merge_partitions(partitions, partition_labels, sccs_all, anchor_type="source"):
     """Merge partitions with identical node sets.
     
-    For source partitions: Excludes anchor nodes before comparing (merge if same descendants)
+    For source/backward partitions: Excludes anchor nodes before comparing (merge if same descendants)
     For leaf partitions: Includes anchor nodes in comparison (merge only if fully identical)
     
     Args:
         partitions: Dict mapping anchor SCC index to set of node IDs
         partition_labels: Dict mapping anchor SCC index to label
         sccs_all: List of all SCCs
-        anchor_type: Either "source" or "leaf" for label generation
+        anchor_type: Either "source", "leaf", or "backward" for label generation
     
     Returns:
         - merged_partitions: Dict of merged partitions
@@ -243,9 +243,9 @@ def _merge_partitions(partitions, partition_labels, sccs_all, anchor_type="sourc
     # Group partitions by their node sets
     node_set_to_anchors = {}
     for anchor_idx, nodes in partitions.items():
-        # For source partitions, exclude anchor nodes from comparison
+        # For source/backward partitions, exclude anchor nodes from comparison
         # For leaf partitions, include all nodes in comparison
-        if anchor_type == "source":
+        if anchor_type in ("source", "backward"):
             anchor_scc_nodes = set(sccs_all[anchor_idx])
             comparison_nodes = nodes - anchor_scc_nodes
         else:  # leaf partitions
@@ -279,7 +279,9 @@ def _merge_partitions(partitions, partition_labels, sccs_all, anchor_type="sourc
         # Generate appropriate suffix based on anchor type
         if anchor_type == "leaf":
             suffix = f"leaf{'ves' if len(anchor_names) > 1 else ''}"
-        else:
+        elif anchor_type == "backward":
+            suffix = f"leaf{'ves' if len(anchor_names) > 1 else ''}"
+        else:  # source
             suffix = f"source{'s' if len(anchor_names) > 1 else ''}"
         
         merged_labels[key_idx] = f"{label_base} ({len(all_nodes) - len(anchor_names)} nodes, {len(anchor_names)} {suffix})"
@@ -350,7 +352,7 @@ def compute_source_partitions(net):
     stats = {
         'initial_count': len(partitions),
         'merged_count': len(merged_partitions),
-        'strategy': 'Merge if same descendants (excluding sources)'
+        'strategy': 'Merge if same nodes (excluding sources)'
     }
     
     return sccs_all, scc_map_all, merged_partitions, merged_labels, condensed, stats
@@ -409,6 +411,59 @@ def compute_leaf_partitions(net):
         'initial_count': len(partitions),
         'merged_count': len(merged_partitions),
         'strategy': 'Merge only if fully identical'
+    }
+    
+    return sccs_all, scc_map_all, merged_partitions, merged_labels, condensed, stats
+
+
+def compute_backward_partitions(net):
+    """
+    Compute backward-reachable partitions from leaves (NOT successor-closed).
+    
+    Each partition includes only nodes that can reach a leaf node (node with no outgoing 
+    edges), WITHOUT extending to be successor-closed. This differs from compute_leaf_partitions
+    which makes the result successor-closed.
+    
+    Returns:
+        - sccs_all: List of all SCCs (list of node lists)
+        - scc_map_all: Dict mapping node_id to SCC index
+        - partitions: Dict mapping leaf SCC index to set of backward-reachable node IDs
+        - partition_labels: Dict mapping leaf SCC index to leaf node name
+        - condensed_graph: The condensed NetworkX graph
+        - stats: Dict with partition statistics
+    """
+    nx_graph, sccs_all, scc_map_all, condensed = _build_graph_and_compute_sccs(net)
+    
+    # Find leaf nodes in condensed graph (no outgoing edges)
+    leaf_sccs = [node for node in condensed.nodes() if condensed.out_degree(node) == 0]
+    
+    # For each leaf SCC, compute backward-reachable set (NOT successor-closed)
+    partitions = {}
+    partition_labels = {}
+    for leaf_scc_idx in leaf_sccs:
+        # Get all SCCs that can reach this leaf SCC (predecessors/ancestors in DAG)
+        backward_reachable_sccs = nx.ancestors(condensed, leaf_scc_idx)
+        backward_reachable_sccs.add(leaf_scc_idx)  # Include the leaf itself
+        
+        # Expand to original nodes (NO successor closure)
+        partition_nodes = set()
+        for scc_idx in backward_reachable_sccs:
+            partition_nodes.update(sccs_all[scc_idx])
+        
+        partitions[leaf_scc_idx] = partition_nodes
+        partition_labels[leaf_scc_idx] = extract_node_name(sorted(sccs_all[leaf_scc_idx])[0])
+    
+    # Merge partitions with identical node sets
+    merged_partitions, merged_labels, node_set_to_anchors = _merge_partitions(
+        partitions, partition_labels, sccs_all, anchor_type="backward"
+    )
+    
+    _print_partition_statistics(sccs_all, leaf_sccs, partitions, merged_partitions, "backward")
+    
+    stats = {
+        'initial_count': len(partitions),
+        'merged_count': len(merged_partitions),
+        'strategy': 'Merge if same nodes (excluding leaves)'
     }
     
     return sccs_all, scc_map_all, merged_partitions, merged_labels, condensed, stats

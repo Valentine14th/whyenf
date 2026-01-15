@@ -123,7 +123,7 @@ document.addEventListener('DOMContentLoaded', function() {
     GraphEventHandlers.setupSCCHandler(sccToggle, sccs, network);
     
     // Partition type toggle
-    GraphEventHandlers.setupPartitionTypeHandler(partitionTypeRadios, sourcePartitions, sourcePartitionLabels, leafPartitions, leafPartitionLabels, selectedPartitions, updateSelectedDisplay, highlightNodes);
+    GraphEventHandlers.setupPartitionTypeHandler(partitionTypeRadios, sourcePartitions, sourcePartitionLabels, leafPartitions, leafPartitionLabels, backwardPartitions, backwardPartitionLabels, selectedPartitions, updateSelectedDisplay, highlightNodes);
     
     // Rankings widget
     var rankingsToggleBtn = document.getElementById('rankings-toggle-btn');
