@@ -70,10 +70,8 @@ def build_partition_controls_html(partitions, partition_labels):
 
 def load_and_populate_template(template_file, edge_controls_html, checkbox_items_html, 
                                leaf_nodes_json, source_nodes_json,
-                               scc_map_json, sccs_json, source_partitions_json, source_partition_labels_json,
-                               leaf_partitions_json, leaf_partition_labels_json, backward_partitions_json,
-                               backward_partition_labels_json, partition_controls_html,
-                               source_stats_json, leaf_stats_json, backward_stats_json):
+                               scc_map_json, sccs_json, partitions_json, partition_labels_json,
+                               partition_controls_html, stats_json):
     """Load HTML template and replace placeholders with generated content."""
     with open(template_file, 'r') as f:
         template_content = f.read()
@@ -88,15 +86,9 @@ def load_and_populate_template(template_file, edge_controls_html, checkbox_items
         source_nodes_json=source_nodes_json,
         scc_map_json=scc_map_json,
         sccs_json=sccs_json,
-        source_partitions_json=source_partitions_json,
-        source_partition_labels_json=source_partition_labels_json,
-        leaf_partitions_json=leaf_partitions_json,
-        leaf_partition_labels_json=leaf_partition_labels_json,
-        backward_partitions_json=backward_partitions_json,
-        backward_partition_labels_json=backward_partition_labels_json,
-        source_stats_json=source_stats_json,
-        leaf_stats_json=leaf_stats_json,
-        backward_stats_json=backward_stats_json
+        partitions_json=partitions_json,
+        partition_labels_json=partition_labels_json,
+        stats_json=stats_json
     )
 
     return widget_html

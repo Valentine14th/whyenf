@@ -173,8 +173,9 @@ var GraphEventHandlers = (function() {
         }
     }
     
-    function setupPartitionTypeHandler(partitionTypeRadios, sourcePartitions, sourcePartitionLabels, leafPartitions, leafPartitionLabels, backwardPartitions, backwardPartitionLabels, selectedPartitions, updateCallback, highlightCallback) {
-        // Function to update stats display
+    
+    function initializePartitionStats() {
+        // Display partition stats on load
         function updateStatsDisplay(stats) {
             var statsDiv = document.getElementById('partition-stats');
             if (statsDiv && stats) {
@@ -185,67 +186,10 @@ var GraphEventHandlers = (function() {
             }
         }
         
-        // Set initial stats for source partitions
-        if (window.sourceStats) {
-            updateStatsDisplay(window.sourceStats);
+        // Set initial stats
+        if (window.graphData && window.graphData.stats) {
+            updateStatsDisplay(window.graphData.stats);
         }
-        
-        partitionTypeRadios.forEach(function(radio) {
-            radio.addEventListener('change', function() {
-                // Clear current selections
-                selectedPartitions.clear();
-                
-                // Swap partition data
-                if (this.value === 'source') {
-                    window.partitions = sourcePartitions;
-                    window.partitionLabels = sourcePartitionLabels;
-                    updateStatsDisplay(window.sourceStats);
-                } else if (this.value === 'leaf') {
-                    window.partitions = leafPartitions;
-                    window.partitionLabels = leafPartitionLabels;
-                    updateStatsDisplay(window.leafStats);
-                } else if (this.value === 'backward') {
-                    window.partitions = backwardPartitions;
-                    window.partitionLabels = backwardPartitionLabels;
-                    updateStatsDisplay(window.backwardStats);
-                }
-                
-                // Rebuild partition list HTML
-                var partitionList = document.getElementById('partition-list');
-                if (partitionList && window.partitions) {
-                    var html = '';
-                    var partitionKeys = Object.keys(window.partitions);
-                    for (var i = 0; i < partitionKeys.length; i++) {
-                        var key = partitionKeys[i];
-                        html += '<div class="checkbox-item">';
-                        html += '<input type="checkbox" id="partition-' + key + '" class="partition-checkbox" value="' + key + '">';
-                        html += '<label for="partition-' + key + '">' + window.partitionLabels[key] + '</label>';
-                        html += '</div>';
-                    }
-                    partitionList.innerHTML = html;
-                    
-                    // Re-setup event handlers for new partition checkboxes
-                    var newPartitionCheckboxes = partitionList.querySelectorAll('.partition-checkbox');
-                    var newPartitionItems = partitionList.querySelectorAll('.checkbox-item');
-                    
-                    GraphEventHandlers.setupPartitionCheckboxHandlers(newPartitionCheckboxes, selectedPartitions, updateCallback, highlightCallback);
-                    GraphEventHandlers.setupPartitionItemClickHandlers(newPartitionItems);
-                    
-                    // Clear partition search input and show all items
-                    var partitionSearchInput = document.getElementById('partition-search-input');
-                    if (partitionSearchInput) {
-                        partitionSearchInput.value = '';
-                    }
-                    newPartitionItems.forEach(function(item) {
-                        item.style.display = 'flex';
-                    });
-                }
-                
-                // Update display
-                updateCallback();
-                highlightCallback();
-            });
-        });
     }
     
     return {
@@ -261,6 +205,6 @@ var GraphEventHandlers = (function() {
         setupToggleButtonHandler: setupToggleButtonHandler,
         setupSCCHandler: setupSCCHandler,
         setupRankingsToggle: setupRankingsToggle,
-        setupPartitionTypeHandler: setupPartitionTypeHandler
+        initializePartitionStats: initializePartitionStats
     };
 })();
