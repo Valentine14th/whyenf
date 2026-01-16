@@ -89,6 +89,45 @@ def extract_implications(node, implications=None):
     return implications
 
 
+def extract_top_level_rules(instrs):
+    """Extract top-level rules from the first instruction's effects list.
+    
+    Returns a list of rules where each rule has:
+    - id: unique identifier (index in the effects list)
+    - filter: set of predicates in the filter
+    - effects: set of predicates in the effects
+    """
+    if not instrs or len(instrs) == 0:
+        return []
+    
+    first_instr = instrs[0]
+    recipe = first_instr.get("recipe", {})
+    by_field = recipe.get("by", {})
+    effects_list = by_field.get("effects", [])
+    
+    rules = []
+    for idx, effect_item in enumerate(effects_list):
+        if not isinstance(effect_item, dict):
+            continue
+        
+        # Each effect is an NInstructions with nested instructions
+        if effect_item.get("constructor") == "NInstructions":
+            instructions = effect_item.get("instructions", [])
+            
+            # Get the first instruction's recipe.by
+            if instructions and "recipe" in instructions[0]:
+                recipe_by = instructions[0]["recipe"].get("by", {})
+                
+                rule = {
+                    "id": idx,
+                    "filter": extract_predicates(recipe_by.get("filter", {})),
+                    "effects": extract_predicates(recipe_by.get("effects", {}))
+                }
+                rules.append(rule)
+    
+    return rules
+
+
 def extract_causality_rules(node, rules=None):
     """Extract all CauByCau and CauBySup rules with predicates from filter and effects."""
     if rules is None:

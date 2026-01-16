@@ -7,6 +7,73 @@ import networkx as nx
 from .config import NODE_COLORS, EDGE_COLORS
 
 
+def add_rule_nodes(net, rules):
+    """Add rule nodes to the network."""
+    for rule in rules:
+        rule_id = f"RULE_{rule['id']}"
+        
+        # Create label with effects
+        effects_list = sorted(rule['effects'])
+        label = f"Rule {rule['id']}"
+        
+        # Create hover text with details
+        hover_text = (
+            f"Rule {rule['id']}\n"
+            f"Filter ({len(rule['filter'])} predicates):\n" +
+            "\n".join(f"  • {p}" for p in sorted(rule['filter'])) +
+            f"\n\nEffects ({len(rule['effects'])} predicates):\n" +
+            "\n".join(f"  • {p}" for p in effects_list)
+        )
+        
+        # Use default color for all rules
+        color = NODE_COLORS["caubycau"]
+        
+        net.add_node(
+            rule_id,
+            label=label,
+            color=color,
+            shape="box",
+            size=35,
+            font={"size": 14, "color": "#ffffff", "bold": True},
+            shapeProperties={"borderRadius": 6},
+            title=hover_text
+        )
+
+
+
+def add_rule_edges(net, rules):
+    """Add edges between rules where one rule's effects appear in another's filter."""
+    edge_count = 0
+    
+    for rule_from in rules:
+        for rule_to in rules:
+            if rule_from['id'] == rule_to['id']:
+                continue
+            
+            # Check if any of rule_from's effects appear in rule_to's filter
+            common_predicates = rule_from['effects'] & rule_to['filter']
+            
+            if common_predicates:
+                rule_from_id = f"RULE_{rule_from['id']}"
+                rule_to_id = f"RULE_{rule_to['id']}"
+                
+                # Create edge label with common predicates
+                predicates_str = ", ".join(sorted(common_predicates))
+                title = f"Rule {rule_from['id']} → Rule {rule_to['id']}\nShared: {predicates_str}"
+                
+                net.add_edge(
+                    rule_from_id,
+                    rule_to_id,
+                    color={"color": EDGE_COLORS["implication"], "highlight": "#e74c3c", "opacity": 0.7},
+                    width=2,
+                    title=title,
+                    label=str(len(common_predicates))
+                )
+                edge_count += 1
+    
+    return edge_count
+
+
 def get_node_id(pred_name, let_definition_names):
     """Return the correct node ID (LET node or predicate node)."""
     return f"LET_{pred_name}" if pred_name in let_definition_names else pred_name

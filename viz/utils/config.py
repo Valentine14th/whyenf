@@ -65,6 +65,16 @@ NODE_COLORS = {
         "background": "#ec7063",
         "highlight": {"border": "#d68910", "background": "#f39c12"}
     },
+    "caubycau": {
+        "border": "#16a085",
+        "background": "#1abc9c",
+        "highlight": {"border": "#d68910", "background": "#f39c12"}
+    },
+    "caubysup": {
+        "border": "#8e44ad",
+        "background": "#9b59b6",
+        "highlight": {"border": "#d68910", "background": "#f39c12"}
+    },
     "leaf_let": {
         "border": "#943126",
         "background": "#cd6155",
