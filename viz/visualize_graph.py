@@ -19,7 +19,7 @@ from utils.config import PHYSICS_OPTIONS
 from utils.graph import (
     get_node_id, extract_node_name, add_predicate_nodes, add_let_definition_nodes,
     add_let_definition_edges, add_causality_edges, add_implication_edges,
-    update_node_colors_for_graph_structure, print_graph_statistics, compute_backward_partitions
+    find_source_and_leaf_nodes, print_graph_statistics, compute_backward_partitions
 )
 from utils.html import (
     build_edge_controls_html, build_checkbox_items_html, build_partition_controls_html,
@@ -61,7 +61,7 @@ def create_graph(json_file, output_file, mode="original"):
     scc_map = {node_id: idx for idx, scc in enumerate(sccs) for node_id in scc}
     
     # Update node colors based on graph structure (leaf/source nodes)
-    leaf_nodes, source_nodes = update_node_colors_for_graph_structure(net)
+    leaf_nodes, source_nodes = find_source_and_leaf_nodes(net)
     print(f"Found {len(leaf_nodes)} leaf nodes (no outgoing edges)")
     print(f"Found {len(source_nodes)} source nodes (no incoming edges)")
     

@@ -16,8 +16,9 @@ def extract_predicates(node, predicates_set=None):
     if not isinstance(node, dict):
         return predicates_set
     
-    # Check if this is a Predicate constructor
-    if node.get("constructor") == "Predicate":
+    # Check if this is a Predicate constructor (with or without apostrophe)
+    constructor = node.get("constructor")
+    if constructor in ["Predicate", "Predicate'"]:
         predicates_set.add(node["name"])
     
     # Recursively traverse all values in the dictionary
@@ -114,12 +115,15 @@ def extract_top_level_rules(instrs):
         if effect_item.get("constructor") == "NInstructions":
             instructions = effect_item.get("instructions", [])
             
-            # Get the first instruction's recipe.by
+            # Get the first instruction's recipe
             if instructions and "recipe" in instructions[0]:
-                recipe_by = instructions[0]["recipe"].get("by", {})
+                recipe = instructions[0]["recipe"]
+                recipe_by = recipe.get("by", {})
+                rule_type = recipe.get("constructor", "Unknown")
                 
                 rule = {
                     "id": idx,
+                    "type": rule_type,
                     "filter": extract_predicates(recipe_by.get("filter", {})),
                     "effects": extract_predicates(recipe_by.get("effects", {}))
                 }

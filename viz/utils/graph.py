@@ -11,22 +11,24 @@ def add_rule_nodes(net, rules):
     """Add rule nodes to the network."""
     for rule in rules:
         rule_id = f"RULE_{rule['id']}"
+        rule_type = rule.get('type', 'Unknown')
         
-        # Create label with effects
+        # Create label with rule type
         effects_list = sorted(rule['effects'])
         label = f"Rule {rule['id']}"
         
         # Create hover text with details
         hover_text = (
             f"Rule {rule['id']}\n"
+            f"Type: {rule_type}\n"
             f"Filter ({len(rule['filter'])} predicates):\n" +
             "\n".join(f"  • {p}" for p in sorted(rule['filter'])) +
             f"\n\nEffects ({len(rule['effects'])} predicates):\n" +
             "\n".join(f"  • {p}" for p in effects_list)
         )
         
-        # Use default color for all rules
-        color = NODE_COLORS["caubycau"]
+        # Color based on rule type
+        color = NODE_COLORS["caubycau"] if rule_type == "CauByCau" else NODE_COLORS["caubysup"]
         
         net.add_node(
             rule_id,
@@ -211,7 +213,7 @@ def add_causality_edges(net, rules, let_definition_names):
 
 
 def add_implication_edges(net, implications, let_definition_names):
-    """Add edges from implications."""
+    """Add edges from implications for legacy non-normalized graph."""
     # Aggregate implication edges
     implication_edges = {}  # (source, target) -> count
     for imp in implications:
@@ -366,8 +368,7 @@ def compute_backward_partitions(net):
     Compute backward-reachable partitions from leaves (NOT successor-closed).
     
     Each partition includes only nodes that can reach a leaf node (node with no outgoing 
-    edges), WITHOUT extending to be successor-closed. This differs from compute_leaf_partitions
-    which makes the result successor-closed.
+    edges). 
     
     Returns:
         - sccs_all: List of all SCCs (list of node lists)
@@ -382,7 +383,7 @@ def compute_backward_partitions(net):
     # Find leaf nodes in condensed graph (no outgoing edges)
     leaf_sccs = [node for node in condensed.nodes() if condensed.out_degree(node) == 0]
     
-    # For each leaf SCC, compute backward-reachable set (NOT successor-closed)
+    # For each leaf SCC, compute backward-reachable set 
     partitions = {}
     partition_labels = {}
     for leaf_scc_idx in leaf_sccs:
@@ -390,7 +391,7 @@ def compute_backward_partitions(net):
         backward_reachable_sccs = nx.ancestors(condensed, leaf_scc_idx)
         backward_reachable_sccs.add(leaf_scc_idx)  # Include the leaf itself
         
-        # Expand to original nodes (NO successor closure)
+        # Expand to original nodes 
         partition_nodes = set()
         for scc_idx in backward_reachable_sccs:
             partition_nodes.update(sccs_all[scc_idx])
@@ -414,7 +415,7 @@ def compute_backward_partitions(net):
     return sccs_all, scc_map_all, merged_partitions, merged_labels, condensed, stats
 
 
-def update_node_colors_for_graph_structure(net):
+def find_source_and_leaf_nodes(net):
     """Identify and color leaf and source nodes based on graph structure."""
     all_edges = net.edges
     all_node_ids = {node['id'] for node in net.nodes}
@@ -426,11 +427,19 @@ def update_node_colors_for_graph_structure(net):
     
     # Update node colors for leaf and source nodes
     for node in net.nodes:
-        is_let_node = node['id'].startswith('LET_')
-        if node['id'] in leaf_nodes:
-            node['color'] = NODE_COLORS["leaf_let" if is_let_node else "leaf_pred"]
-        elif node['id'] in source_nodes:
-            node['color'] = NODE_COLORS["source_let" if is_let_node else "source_pred"]
+        if node['id'].startswith('RULE_'):
+            # Keep the original rule type color but indicate special status in title
+            if node['id'] in leaf_nodes:
+                node['title'] = node.get('title', '') + '\n[LEAF NODE - no outgoing edges]'
+            elif node['id'] in source_nodes:
+                node['title'] = node.get('title', '') + '\n[SOURCE NODE - no incoming edges]'
+        else:
+            # Legacy support for LET/predicate nodes if they exist
+            is_let_node = node['id'].startswith('LET_')
+            if node['id'] in leaf_nodes:
+                node['color'] = NODE_COLORS["leaf_let" if is_let_node else "leaf_pred"]
+            elif node['id'] in source_nodes:
+                node['color'] = NODE_COLORS["source_let" if is_let_node else "source_pred"]
     
     return leaf_nodes, source_nodes
 
