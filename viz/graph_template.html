@@ -32,20 +32,7 @@
             <div style="font-size: 12px; color: #555; margin-bottom: 8px; font-weight: 600;">Filter Partitions</div>
             <div id="partition-controls">
                 <div style="margin-bottom: 10px; padding: 8px; background: #f8f9fa; border-radius: 4px; border: 1px solid #dee2e6;">
-                    <div style="font-size: 11px; color: #555; margin-bottom: 5px;">Partition type:</div>
-                    <label style="margin-bottom: 3px; display: block; font-size: 12px;">
-                        <input type="radio" name="partition-type" value="source" checked />
-                        <span class="edge-label">Source-based (forward-reachable)</span>
-                    </label>
-                    <label style="margin-bottom: 3px; display: block; font-size: 12px;">
-                        <input type="radio" name="partition-type" value="leaf" />
-                        <span class="edge-label">Leaf-based (backward + successor-closed)</span>
-                    </label>
-                    <label style="margin-bottom: 3px; display: block; font-size: 12px;">
-                        <input type="radio" name="partition-type" value="backward" />
-                        <span class="edge-label">Backward-reachable (backward only)</span>
-                    </label>
-                    <div id="partition-stats" style="font-size: 10px; color: #666; margin-top: 6px; padding-top: 6px; border-top: 1px solid #dee2e6;">
+                    <div id="partition-stats" style="font-size: 10px; color: #666;">
                     </div>
                 </div>
                 <div id="scc-controls-container">
@@ -126,15 +113,9 @@
             sourceNodeNames: {{ source_nodes_json }},
             sccMap: {{ scc_map_json }},
             sccs: {{ sccs_json }},
-            sourcePartitions: {{ source_partitions_json }},
-            sourcePartitionLabels: {{ source_partition_labels_json }},
-            leafPartitions: {{ leaf_partitions_json }},
-            leafPartitionLabels: {{ leaf_partition_labels_json }},
-            backwardPartitions: {{ backward_partitions_json }},
-            backwardPartitionLabels: {{ backward_partition_labels_json }},
-            sourceStats: {{ source_stats_json }},
-            leafStats: {{ leaf_stats_json }},
-            backwardStats: {{ backward_stats_json }}
+            partitions: {{ partitions_json }},
+            partitionLabels: {{ partition_labels_json }},
+            stats: {{ stats_json }}
         };
         
         // Legacy compatibility - keep global variables for existing code
@@ -142,19 +123,8 @@
         var sourceNodeNames = graphData.sourceNodeNames;
         var sccMap = graphData.sccMap;
         var sccs = graphData.sccs;
-        var sourcePartitions = graphData.sourcePartitions;
-        var sourcePartitionLabels = graphData.sourcePartitionLabels;
-        var leafPartitions = graphData.leafPartitions;
-        var leafPartitionLabels = graphData.leafPartitionLabels;
-        var backwardPartitions = graphData.backwardPartitions;
-        var backwardPartitionLabels = graphData.backwardPartitionLabels;
-        var sourceStats = graphData.sourceStats;
-        var leafStats = graphData.leafStats;
-        var backwardStats = graphData.backwardStats;
-        
-        // Start with source partitions
-        var partitions = sourcePartitions;
-        var partitionLabels = sourcePartitionLabels;
+        var partitions = graphData.partitions;
+        var partitionLabels = graphData.partitionLabels;
     </script>
     <script src="utils/edges.js"></script>
     <script src="utils/nodes.js"></script>
