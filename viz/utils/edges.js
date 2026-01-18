@@ -18,8 +18,7 @@ const GraphEdges = (function() {
             GraphPartitions.applyPartitionFilter(network, selectedPartitions, partitions, isEdgeHidden);
         }
         
-        var connectedNodes = GraphFilters.updateEdgeVisibility(network, selectedNodes, isEdgeHidden, highlightCallback);
-        filterDropdownCallback(connectedNodes);
+        GraphFilters.updateEdgeVisibility(network, selectedNodes, isEdgeHidden, highlightCallback);
         updateRankingsCallback();
     }
     
