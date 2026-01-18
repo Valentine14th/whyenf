@@ -44,7 +44,13 @@ def add_rule_nodes(net, rules):
 
 
 def add_rule_edges(net, rules):
-    """Add edges between rules where one rule's effects appear in another's filter."""
+    """Add edges between rules where one rule's effects appear in another's filter.
+    
+    Edge color is determined by the monotonicity of shared predicates in the target rule's filter:
+    - Green: All shared predicates are Monotonic
+    - Orange: All shared predicates are Antimonotonic  
+    - Purple: Mixed monotonicity
+    """
     edge_count = 0
     
     for rule_from in rules:
@@ -59,17 +65,44 @@ def add_rule_edges(net, rules):
                 rule_from_id = f"RULE_{rule_from['id']}"
                 rule_to_id = f"RULE_{rule_to['id']}"
                 
-                # Create edge label with common predicates
+                # Determine monotonicity of shared predicates in rule_to's filter
+                events = rule_to.get('events', {})
+                monotonicities = set()
+                monotonicity_details = []
+                
+                for pred in common_predicates:
+                    polarity = events.get(pred, 'Unknown')
+                    monotonicities.add(polarity)
+                    monotonicity_details.append(f"{pred} ({polarity})")
+                
+                # Determine edge color and type based on monotonicity
+                if monotonicities == {'Monotonic'}:
+                    edge_color = "#27ae60"  # Green for monotonic
+                    monotonicity_type = "monotonic"
+                elif monotonicities == {'Antimonotonic'}:
+                    edge_color = "#e67e22"  # Orange for antimonotonic
+                    monotonicity_type = "antimonotonic"
+                else:
+                    edge_color = "#9b59b6"  # Purple for mixed
+                    monotonicity_type = "mixed"
+                
+                # Create edge label with common predicates and monotonicity
                 predicates_str = ", ".join(sorted(common_predicates))
-                title = f"Rule {rule_from['id']} → Rule {rule_to['id']}\nShared: {predicates_str}"
+                title = (
+                    f"Rule {rule_from['id']} → Rule {rule_to['id']}\n"
+                    f"Shared: {predicates_str}\n"
+                    f"Monotonicity: {monotonicity_type.capitalize()}\n" +
+                    "\n".join(f"  • {detail}" for detail in sorted(monotonicity_details))
+                )
                 
                 net.add_edge(
                     rule_from_id,
                     rule_to_id,
-                    color={"color": EDGE_COLORS["implication"], "highlight": "#e74c3c", "opacity": 0.7},
+                    color={"color": edge_color, "highlight": "#e74c3c", "opacity": 0.7},
                     width=2,
                     title=title,
-                    label=str(len(common_predicates))
+                    label=str(len(common_predicates)),
+                    monotonicity_type=monotonicity_type
                 )
                 edge_count += 1
     

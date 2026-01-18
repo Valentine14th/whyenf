@@ -95,8 +95,10 @@ def extract_top_level_rules(instrs):
     
     Returns a list of rules where each rule has:
     - id: unique identifier (index in the effects list)
+    - type: CauByCau or CauBySup
     - filter: set of predicates in the filter
     - effects: set of predicates in the effects
+    - events: dict mapping predicate name to monotonicity ("Monotonic", "Antimonotonic", etc.)
     """
     if not instrs or len(instrs) == 0:
         return []
@@ -121,11 +123,16 @@ def extract_top_level_rules(instrs):
                 recipe_by = recipe.get("by", {})
                 rule_type = recipe.get("constructor", "Unknown")
                 
+                # Extract events with monotonicity information
+                events_list = recipe_by.get("events", [])
+                events_dict = {event["name"]: event["polarity"] for event in events_list}
+                
                 rule = {
                     "id": idx,
                     "type": rule_type,
                     "filter": extract_predicates(recipe_by.get("filter", {})),
-                    "effects": extract_predicates(recipe_by.get("effects", {}))
+                    "effects": extract_predicates(recipe_by.get("effects", {})),
+                    "events": events_dict
                 }
                 rules.append(rule)
     

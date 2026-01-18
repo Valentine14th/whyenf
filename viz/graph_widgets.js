@@ -17,8 +17,9 @@ document.addEventListener('DOMContentLoaded', function() {
     var edgeCheckboxes = {
         letEdges: document.getElementById('show-let-edges'),
         implicationEdges: document.getElementById('show-implication-edges'),
-        cauByCauEdges: document.getElementById('show-caubycau-edges'),
-        cauBySupEdges: document.getElementById('show-caubysup-edges')
+        monotonicEdges: document.getElementById('show-monotonic-edges'),
+        antimonotonicEdges: document.getElementById('show-antimonotonic-edges'),
+        mixedEdges: document.getElementById('show-mixed-edges')
     };
     
     // Filter controls
@@ -152,8 +153,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // Set default edge type visibility
     if (edgeCheckboxes.letEdges) edgeCheckboxes.letEdges.checked = true;
     if (edgeCheckboxes.implicationEdges) edgeCheckboxes.implicationEdges.checked = true;
-    if (edgeCheckboxes.cauByCauEdges) edgeCheckboxes.cauByCauEdges.checked = true;
-    if (edgeCheckboxes.cauBySupEdges) edgeCheckboxes.cauBySupEdges.checked = true;
+    if (edgeCheckboxes.monotonicEdges) edgeCheckboxes.monotonicEdges.checked = true;
+    if (edgeCheckboxes.antimonotonicEdges) edgeCheckboxes.antimonotonicEdges.checked = true;
+    if (edgeCheckboxes.mixedEdges) edgeCheckboxes.mixedEdges.checked = true;
     
     // Set default edge direction
     edgeDirectionRadios.forEach(function(radio) {

@@ -30,10 +30,12 @@ def build_edge_controls_html(mode, has_definitions):
     if mode != "normal":
         controls.append(create_edge_control("show-implication-edges", "Implication Edges"))
     
-    # Causality edges (normal mode only)
+    # Causality edges (normal mode only) - monotonicity-based filtering
     if mode == "normal":
-        controls.append(create_edge_control("show-caubycau-edges", "Cause by Causing Edges", "#27ae60"))
-        controls.append(create_edge_control("show-caubysup-edges", "Cause by Suppressing Edges", "#3498db"))
+        controls.append('<div style="font-size: 11px; color: #555; margin-top: 10px; margin-bottom: 5px; font-weight: 600;">Filter by Monotonicity:</div>')
+        controls.append(create_edge_control("show-monotonic-edges", "Monotonic Edges", "#27ae60"))
+        controls.append(create_edge_control("show-antimonotonic-edges", "Antimonotonic Edges", "#e67e22"))
+        controls.append(create_edge_control("show-mixed-edges", "Mixed Monotonicity Edges", "#9b59b6"))
     
     return '\n                '.join(controls)
 
