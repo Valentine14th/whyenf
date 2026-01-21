@@ -51,7 +51,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var updateSelectedDisplay = function() {
         GraphUIState.updateSelectedNodesDisplay(selectedNodesDiv, selectedNodes, checkboxes, updateSelectedDisplay, highlightNodes);
         GraphUIState.updateSelectedPartitionsDisplay(selectedPartitionsDiv, selectedPartitions, partitions, partitionLabels, partitionCheckboxes, updateSelectedDisplay, highlightNodes);
-        GraphControlState.updatePartitionModeControls(selectedPartitions, selectedNodes, edgeCheckboxes, searchInput, checkboxes, checkboxItems, partitionSearchInput, partitionCheckboxes, partitionItems);
+        GraphUIState.updatePartitionModeControls(selectedPartitions, selectedNodes, edgeCheckboxes, searchInput, checkboxes, checkboxItems, partitionSearchInput, partitionCheckboxes, partitionItems);
     };
     
     var highlightNodes = function() {
@@ -72,7 +72,7 @@ document.addEventListener('DOMContentLoaded', function() {
     };
     
     var updateFilterModeControls = function() {
-        GraphControlState.updateFilterModeControls(filterModeRadios, edgeDirectionRadios);
+        GraphUIState.updateFilterModeControls(filterModeRadios, edgeDirectionRadios);
     };
     
     // ============================================================================
@@ -98,7 +98,7 @@ document.addEventListener('DOMContentLoaded', function() {
     GraphFilters.setupFilterModeHandlers(filterModeRadios, selectedNodes, selectedPartitions, updateFilterModeControls, highlightNodes);
     
     // Toggle button
-    GraphControlState.setupToggleButtonHandler(toggleBtn, searchContent);
+    GraphUIState.setupToggleButtonHandler(toggleBtn, searchContent);
     
     // Search handlers
     GraphNodes.setupSearchHandlers(searchInput, checkboxItems, network, isEdgeHidden);
@@ -113,7 +113,7 @@ document.addEventListener('DOMContentLoaded', function() {
     GraphPartitions.setupPartitionItemClickHandlers(partitionItems);
     
     // Clear button
-    GraphControlState.setupClearButtonHandler(btnClear, selectedNodes, selectedPartitions, checkboxes, partitionCheckboxes, updateSelectedDisplay, searchResults, searchInput, checkboxItems, handleEdgeVisibilityUpdate);
+    GraphUIState.setupClearButtonHandler(btnClear, selectedNodes, selectedPartitions, checkboxes, partitionCheckboxes, updateSelectedDisplay, searchResults, searchInput, checkboxItems, handleEdgeVisibilityUpdate);
     
     // Leaf/Source node selections
     GraphNodes.setupLeafSourceNodeHandlers(leafNodeNames, sourceNodeNames, checkboxes, selectedNodes, updateSelectedDisplay, highlightNodes);
