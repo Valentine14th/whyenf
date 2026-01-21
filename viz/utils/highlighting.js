@@ -25,6 +25,7 @@ var GraphHighlighting = (function() {
             network.selectNodes([]);
             searchResults.textContent = '';
             GraphFilters.updateEdgeVisibility(network, selectedNodes, isEdgeHidden, function() {});
+            updateRankingsCallback();
             GraphSCC.refreshSccs(network, sccs);
             return;
         }

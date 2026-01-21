@@ -3,10 +3,6 @@
  */
 
 const GraphRankings = (function() {
-    function getNodeName(nodeId) {
-        return nodeId.startsWith('LET_') ? nodeId.substring(4) : nodeId;
-    }
-
     function updateRankings(network, selectedNodes, checkboxes, isEdgeHiddenByTypeFilter) {
         const outgoingRanking = document.getElementById('outgoing-ranking');
         const inboundRanking = document.getElementById('inbound-ranking');
@@ -60,8 +56,8 @@ const GraphRankings = (function() {
             const rankItem = document.createElement('div');
             rankItem.className = 'ranking-item';
             
-            const nodeName = getNodeName(item.id);
-            if (selectedNodes.has(item.label) || selectedNodes.has(nodeName)) {
+            // Check if this node ID is selected
+            if (selectedNodes.has(item.id)) {
                 rankItem.classList.add('selected');
             }
             
@@ -71,7 +67,7 @@ const GraphRankings = (function() {
             `;
             
             rankItem.addEventListener('click', function() {
-                const checkbox = Array.from(checkboxes).find(cb => cb.value === nodeName);
+                const checkbox = Array.from(checkboxes).find(cb => cb.value === item.id);
                 if (checkbox) {
                     checkbox.checked = !checkbox.checked;
                     checkbox.dispatchEvent(new Event('change'));

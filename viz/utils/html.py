@@ -40,14 +40,22 @@ def build_edge_controls_html(mode, has_definitions):
     return '\n                '.join(controls)
 
 
-def build_checkbox_items_html(node_names):
+def build_checkbox_items_html(node_ids):
     """Build checkbox items HTML for node selection."""
     items = []
-    for i, name in enumerate(node_names):
+    for node_id in node_ids:
+        # Format display name from node ID (matches GraphNodes.getNodeDisplayName in frontend)
+        if node_id.startswith('RULE_'):
+            display_name = f"Rule {node_id[5:]}"
+        elif node_id.startswith('LET_'):
+            display_name = node_id[4:]
+        else:
+            display_name = node_id
+        
         items.append(
             f'<div class="checkbox-item">\n'
-            f'    <input type="checkbox" id="node_{i}" value="{name}" />\n'
-            f'    <label for="node_{i}" style="font-size: 12px;">{name}</label>\n'
+            f'    <input type="checkbox" id="{node_id}" value="{node_id}" />\n'
+            f'    <label for="{node_id}" style="font-size: 12px;">{display_name}</label>\n'
             f'</div>'
         )
     return '\n                '.join(items)

@@ -3,8 +3,17 @@
  */
 
 const GraphNodes = (function() {
-    function getNodeName(nodeId) {
-        return nodeId.startsWith('LET_') ? nodeId.substring(4) : nodeId;
+    /**
+     * Extract the display name from a node ID.
+     * Formats: RULE_1 -> "Rule 1", LET_foo -> "foo", others -> unchanged
+     */
+    function getNodeDisplayName(nodeId) {
+        if (nodeId.startsWith('RULE_')) {
+            return 'Rule ' + nodeId.substring(5);
+        } else if (nodeId.startsWith('LET_')) {
+            return nodeId.substring(4);
+        }
+        return nodeId;
     }
 
     function findMatchingNodeIds(network, nodeNames) {
@@ -109,7 +118,7 @@ const GraphNodes = (function() {
     }
 
     return {
-        getNodeName,
+        getNodeDisplayName,
         findMatchingNodeIds,
         getVisibleNodesFromEdges,
         toggleNodeSelection,

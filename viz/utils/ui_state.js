@@ -139,14 +139,16 @@ var GraphUIState = (function() {
         if (selectedNodes.size === 0) {
             selectedNodesDiv.innerHTML = '<div style="color: #95a5a6; font-size: 12px; padding: 5px;">No nodes selected</div>';
         } else {
-            selectedNodes.forEach(function(nodeName) {
+            selectedNodes.forEach(function(nodeId) {
+                var displayName = GraphNodes.getNodeDisplayName(nodeId);
+                
                 var tag = document.createElement('span');
                 tag.className = 'selected-tag';
-                tag.textContent = nodeName;
+                tag.textContent = displayName;
                 tag.onclick = function() {
-                    selectedNodes.delete(nodeName);
+                    selectedNodes.delete(nodeId);
                     checkboxes.forEach(function(cb) {
-                        if (cb.value === nodeName) cb.checked = false;
+                        if (cb.value === nodeId) cb.checked = false;
                     });
                     updateCallback();
                     highlightCallback();

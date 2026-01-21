@@ -69,9 +69,9 @@ def create_graph(json_file, output_file, mode="original"):
     net.save_graph(output_file)
     
     # Prepare data for HTML template
-    all_node_names = sorted([f"Rule {rule['id']}" for rule in rules])
-    leaf_node_names_json = json.dumps([extract_node_name(nid) for nid in leaf_nodes])
-    source_node_names_json = json.dumps([extract_node_name(nid) for nid in source_nodes])
+    all_node_ids = sorted([f"RULE_{rule['id']}" for rule in rules])
+    leaf_node_names_json = json.dumps(list(leaf_nodes))
+    source_node_names_json = json.dumps(list(source_nodes))
     scc_map_json = json.dumps(scc_map)
     sccs_json = json.dumps(sccs)
     
@@ -84,7 +84,7 @@ def create_graph(json_file, output_file, mode="original"):
     script_dir = os.path.dirname(os.path.abspath(__file__))
     template_file = os.path.join(script_dir, 'graph_template.html')
     
-    checkbox_items_html = build_checkbox_items_html(all_node_names)
+    checkbox_items_html = build_checkbox_items_html(all_node_ids)
     edge_controls_html = build_edge_controls_html(mode, False)  # No LET edges in rule mode
     partition_controls_html = build_partition_controls_html(partitions, partition_labels)
     
