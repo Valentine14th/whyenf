@@ -7,12 +7,12 @@ PHYSICS_OPTIONS = {
     "physics": {
         "enabled": True,
         "barnesHut": {
-            "gravitationalConstant": -5000,
-            "centralGravity": 0.1,
-            "springLength": 150,
-            "springConstant": 0.01,
+            "gravitationalConstant": -15000,
+            "centralGravity": 0.02,
+            "springLength": 400,
+            "springConstant": 0.002,
             "damping": 0.9,
-            "avoidOverlap": 0.2
+            "avoidOverlap": 0.8
         },
         "stabilization": {
             "enabled": True,
