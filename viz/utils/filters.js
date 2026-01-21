@@ -161,6 +161,15 @@ const GraphFilters = (function() {
         
         return connectedNodes;
     }
+    
+    function setupFilterModeHandlers(filterModeRadios, selectedNodes, selectedPartitions, updateFilterModeCallback, highlightCallback) {
+        filterModeRadios.forEach(function(radio) {
+            radio.addEventListener('change', function() {
+                updateFilterModeCallback();
+                if (selectedNodes.size > 0 || selectedPartitions.size > 0) highlightCallback();
+            });
+        });
+    }
 
     return {
         getSelectedEdgeDirection,
@@ -169,6 +178,7 @@ const GraphFilters = (function() {
         buildNeighborhoodFromEdges,
         applyExcludeMode,
         applyIncludeMode,
-        updateEdgeVisibility
+        updateEdgeVisibility,
+        setupFilterModeHandlers
     };
 })();

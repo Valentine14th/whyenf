@@ -157,10 +157,73 @@ const GraphPartitions = (function() {
         }
     }
 
+    /**
+     * Initialize partition statistics display
+     */
+    function initializePartitionStats() {
+        // Display partition stats on load
+        function updateStatsDisplay(stats) {
+            var statsDiv = document.getElementById('partition-stats');
+            if (statsDiv && stats) {
+                statsDiv.innerHTML = 
+                    '<div style="margin-bottom: 2px;"><strong>Initial partitions:</strong> ' + stats.initial_count + '</div>' +
+                    '<div style="margin-bottom: 2px;"><strong>After merging:</strong> ' + stats.merged_count + '</div>' +
+                    '<div style="font-style: italic;">Strategy: ' + stats.strategy + '</div>';
+            }
+        }
+        
+        // Set initial stats
+        if (window.graphData && window.graphData.stats) {
+            updateStatsDisplay(window.graphData.stats);
+        }
+    }
+
+    function setupPartitionSearchHandler(partitionSearchInput, partitionItems) {
+        if (partitionSearchInput) {
+            partitionSearchInput.addEventListener('input', function() {
+                var filter = this.value.toLowerCase();
+                partitionItems.forEach(function(item) {
+                    var label = item.querySelector('label').textContent.toLowerCase();
+                    item.style.display = label.includes(filter) ? 'flex' : 'none';
+                });
+            });
+        }
+    }
+    
+    function setupPartitionCheckboxHandlers(partitionCheckboxes, selectedPartitions, updateCallback, highlightCallback) {
+        partitionCheckboxes.forEach(function(checkbox) {
+            checkbox.addEventListener('change', function() {
+                if (this.checked) {
+                    selectedPartitions.add(this.value);
+                } else {
+                    selectedPartitions.delete(this.value);
+                }
+                updateCallback();
+                highlightCallback();
+            });
+        });
+    }
+    
+    function setupPartitionItemClickHandlers(partitionItems) {
+        partitionItems.forEach(function(item) {
+            item.addEventListener('click', function(e) {
+                if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'LABEL') {
+                    var checkbox = this.querySelector('input[type="checkbox"]');
+                    checkbox.checked = !checkbox.checked;
+                    checkbox.dispatchEvent(new Event('change'));
+                }
+            });
+        });
+    }
+
     return {
         getNodesInPartitions,
         applyPartitionFilter,
-        applyPartitionFilterWithMode
+        applyPartitionFilterWithMode,
+        initializePartitionStats,
+        setupPartitionSearchHandler,
+        setupPartitionCheckboxHandlers,
+        setupPartitionItemClickHandlers
     };
 
 })();

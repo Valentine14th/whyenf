@@ -28,9 +28,18 @@ const GraphEdges = (function() {
         });
     }
 
+    function setupEdgeDirectionHandlers(edgeDirectionRadios, selectedNodes, highlightCallback) {
+        edgeDirectionRadios.forEach(function(radio) {
+            radio.addEventListener('change', function() {
+                if (selectedNodes.size > 0) highlightCallback();
+            });
+        });
+    }
+
     return {
         isEdgeHiddenByTypeFilter,
         handleEdgeVisibilityUpdate,
-        setupEdgeTypeHandlers
+        setupEdgeTypeHandlers,
+        setupEdgeDirectionHandlers
     };
 })();

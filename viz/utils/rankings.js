@@ -82,7 +82,29 @@ const GraphRankings = (function() {
         });
     }
 
+    function setupRankingsToggle(rankingsToggleBtn, rankingsContent, rankingsHeader) {
+        if (rankingsToggleBtn && rankingsContent && rankingsHeader) {
+            rankingsToggleBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (rankingsContent.classList.contains('collapsed')) {
+                    rankingsContent.classList.remove('collapsed');
+                    rankingsToggleBtn.textContent = 'Hide';
+                } else {
+                    rankingsContent.classList.add('collapsed');
+                    rankingsToggleBtn.textContent = 'Show';
+                }
+            });
+            
+            rankingsHeader.addEventListener('click', function(e) {
+                if (e.target !== rankingsToggleBtn) {
+                    rankingsToggleBtn.click();
+                }
+            });
+        }
+    }
+
     return {
-        updateRankings
+        updateRankings,
+        setupRankingsToggle
     };
 })();

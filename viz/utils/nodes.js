@@ -94,12 +94,63 @@ const GraphNodes = (function() {
         }
     }
 
+    function setupSearchHandlers(searchInput, checkboxItems, network, isEdgeHidden) {
+        searchInput.addEventListener('input', function() {
+            var filter = this.value.toLowerCase();
+            var connectedNodes = getVisibleNodesFromEdges(network, isEdgeHidden);
+            
+            var allNodes = network.body.data.nodes.get();
+            var visibleNodeNames = new Set();
+            allNodes.forEach(function(node) {
+                if (connectedNodes.has(node.id)) {
+                    visibleNodeNames.add(getNodeName(node.id));
+                }
+            });
+            
+            checkboxItems.forEach(function(item) {
+                var checkbox = item.querySelector('input[type="checkbox"]');
+                var label = item.querySelector('label').textContent.toLowerCase();
+                var isVisible = visibleNodeNames.has(checkbox.value);
+                item.style.display = (label.includes(filter) && isVisible) ? 'flex' : 'none';
+            });
+        });
+    }
+    
+    function setupNodeCheckboxHandlers(checkboxes, selectedNodes, updateCallback, highlightCallback) {
+        checkboxes.forEach(function(checkbox) {
+            checkbox.addEventListener('change', function() {
+                if (this.checked) {
+                    selectedNodes.add(this.value);
+                } else {
+                    selectedNodes.delete(this.value);
+                }
+                updateCallback();
+                highlightCallback();
+            });
+        });
+    }
+    
+    function setupItemClickHandlers(checkboxItems) {
+        checkboxItems.forEach(function(item) {
+            item.addEventListener('click', function(e) {
+                if (e.target.tagName !== 'INPUT') {
+                    var checkbox = this.querySelector('input[type="checkbox"]');
+                    checkbox.checked = !checkbox.checked;
+                    checkbox.dispatchEvent(new Event('change'));
+                }
+            });
+        });
+    }
+
     return {
         getNodeName,
         findMatchingNodeIds,
         getVisibleNodesFromEdges,
         toggleNodeSelection,
         filterDropdownByVisibility,
-        setupLeafSourceNodeHandlers
+        setupLeafSourceNodeHandlers,
+        setupSearchHandlers,
+        setupNodeCheckboxHandlers,
+        setupItemClickHandlers
     };
 })();

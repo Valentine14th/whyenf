@@ -72,10 +72,19 @@ const GraphSCC = (function() {
         return isSccCollapsed;
     }
 
+    function setupSCCHandler(sccToggle, sccs, network) {
+        if (sccToggle && typeof sccs !== 'undefined' && sccs.length > 0) {
+            sccToggle.addEventListener('change', function() {
+                toggleSccs(network, sccs, sccToggle);
+            });
+        }
+    }
+
     return {
         toggleSccs,
         refreshSccs,
-        getCollapsedState
+        getCollapsedState,
+        setupSCCHandler
     };
 
 })();

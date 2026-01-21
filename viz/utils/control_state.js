@@ -133,8 +133,45 @@ var GraphControlState = (function() {
         });
     }
     
+    function setupClearButtonHandler(btnClear, selectedNodes, selectedPartitions, checkboxes, partitionCheckboxes, updateCallback, searchResults, searchInput, checkboxItems, handleEdgeVisibilityCallback) {
+        btnClear.addEventListener('click', function() {
+            selectedNodes.clear();
+            selectedPartitions.clear();
+            checkboxes.forEach(function(cb) { cb.checked = false; });
+            partitionCheckboxes.forEach(function(cb) { cb.checked = false; });
+            
+            // Uncheck special selection checkboxes
+            var selectLeafNodesCheckbox = document.getElementById('select-leaf-nodes');
+            var selectSourceNodesCheckbox = document.getElementById('select-source-nodes');
+            if (selectLeafNodesCheckbox) selectLeafNodesCheckbox.checked = false;
+            if (selectSourceNodesCheckbox) selectSourceNodesCheckbox.checked = false;
+            
+            updateCallback();
+            network.selectNodes([]);
+            searchResults.textContent = '';
+            searchInput.value = '';
+            checkboxItems.forEach(function(item) { item.style.display = 'flex'; });
+            
+            handleEdgeVisibilityCallback();
+        });
+    }
+    
+    function setupToggleButtonHandler(toggleBtn, searchContent) {
+        toggleBtn.addEventListener('click', function() {
+            if (searchContent.classList.contains('hidden')) {
+                searchContent.classList.remove('hidden');
+                toggleBtn.textContent = 'Hide';
+            } else {
+                searchContent.classList.add('hidden');
+                toggleBtn.textContent = 'Show';
+            }
+        });
+    }
+    
     return {
         updateFilterModeControls: updateFilterModeControls,
-        updatePartitionModeControls: updatePartitionModeControls
+        updatePartitionModeControls: updatePartitionModeControls,
+        setupClearButtonHandler: setupClearButtonHandler,
+        setupToggleButtonHandler: setupToggleButtonHandler
     };
 })();

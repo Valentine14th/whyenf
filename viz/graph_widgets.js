@@ -94,42 +94,42 @@ document.addEventListener('DOMContentLoaded', function() {
     GraphEdges.setupEdgeTypeHandlers(edgeCheckboxes, handleEdgeVisibilityUpdate);
     
     // Edge direction and filter mode
-    GraphEventHandlers.setupEdgeDirectionHandlers(edgeDirectionRadios, selectedNodes, highlightNodes);
-    GraphEventHandlers.setupFilterModeHandlers(filterModeRadios, selectedNodes, selectedPartitions, updateFilterModeControls, highlightNodes);
+    GraphEdges.setupEdgeDirectionHandlers(edgeDirectionRadios, selectedNodes, highlightNodes);
+    GraphFilters.setupFilterModeHandlers(filterModeRadios, selectedNodes, selectedPartitions, updateFilterModeControls, highlightNodes);
     
     // Toggle button
-    GraphEventHandlers.setupToggleButtonHandler(toggleBtn, searchContent);
+    GraphControlState.setupToggleButtonHandler(toggleBtn, searchContent);
     
     // Search handlers
-    GraphEventHandlers.setupSearchHandlers(searchInput, checkboxItems, network, isEdgeHidden);
-    GraphEventHandlers.setupPartitionSearchHandler(partitionSearchInput, partitionItems);
+    GraphNodes.setupSearchHandlers(searchInput, checkboxItems, network, isEdgeHidden);
+    GraphPartitions.setupPartitionSearchHandler(partitionSearchInput, partitionItems);
     
     // Checkbox handlers
-    GraphEventHandlers.setupNodeCheckboxHandlers(checkboxes, selectedNodes, updateSelectedDisplay, highlightNodes);
-    GraphEventHandlers.setupPartitionCheckboxHandlers(partitionCheckboxes, selectedPartitions, updateSelectedDisplay, highlightNodes);
+    GraphNodes.setupNodeCheckboxHandlers(checkboxes, selectedNodes, updateSelectedDisplay, highlightNodes);
+    GraphPartitions.setupPartitionCheckboxHandlers(partitionCheckboxes, selectedPartitions, updateSelectedDisplay, highlightNodes);
     
     // Item click handlers
-    GraphEventHandlers.setupItemClickHandlers(checkboxItems);
-    GraphEventHandlers.setupPartitionItemClickHandlers(partitionItems);
+    GraphNodes.setupItemClickHandlers(checkboxItems);
+    GraphPartitions.setupPartitionItemClickHandlers(partitionItems);
     
     // Clear button
-    GraphEventHandlers.setupClearButtonHandler(btnClear, selectedNodes, selectedPartitions, checkboxes, partitionCheckboxes, updateSelectedDisplay, searchResults, searchInput, checkboxItems, handleEdgeVisibilityUpdate);
+    GraphControlState.setupClearButtonHandler(btnClear, selectedNodes, selectedPartitions, checkboxes, partitionCheckboxes, updateSelectedDisplay, searchResults, searchInput, checkboxItems, handleEdgeVisibilityUpdate);
     
     // Leaf/Source node selections
     GraphNodes.setupLeafSourceNodeHandlers(leafNodeNames, sourceNodeNames, checkboxes, selectedNodes, updateSelectedDisplay, highlightNodes);
     
     // SCC controls
     var sccToggle = document.getElementById('scc-toggle');
-    GraphEventHandlers.setupSCCHandler(sccToggle, sccs, network);
+    GraphSCC.setupSCCHandler(sccToggle, sccs, network);
     
     // Initialize partition stats display
-    GraphEventHandlers.initializePartitionStats();
+    GraphPartitions.initializePartitionStats();
     
     // Rankings widget
     var rankingsToggleBtn = document.getElementById('rankings-toggle-btn');
     var rankingsContent = document.getElementById('rankings-content');
     var rankingsHeader = document.getElementById('rankings-header');
-    GraphEventHandlers.setupRankingsToggle(rankingsToggleBtn, rankingsContent, rankingsHeader);
+    GraphRankings.setupRankingsToggle(rankingsToggleBtn, rankingsContent, rankingsHeader);
     
     // ============================================================================
     // INITIALIZATION - DEFAULT STATE
@@ -151,8 +151,6 @@ document.addEventListener('DOMContentLoaded', function() {
     if (selectSourceNodesCheckbox) selectSourceNodesCheckbox.checked = false;
     
     // Set default edge type visibility
-    if (edgeCheckboxes.letEdges) edgeCheckboxes.letEdges.checked = true;
-    if (edgeCheckboxes.implicationEdges) edgeCheckboxes.implicationEdges.checked = true;
     if (edgeCheckboxes.monotonicEdges) edgeCheckboxes.monotonicEdges.checked = true;
     if (edgeCheckboxes.antimonotonicEdges) edgeCheckboxes.antimonotonicEdges.checked = true;
     if (edgeCheckboxes.mixedEdges) edgeCheckboxes.mixedEdges.checked = true;
