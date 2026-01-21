@@ -55,12 +55,27 @@ def extract_let_definitions(node, definitions=None):
 
 
 def extract_let_definitions_normal(lets_array):
-    """Extract LET definitions from normal JSON format (from 'lets' array)."""
-    return [{
-        "name": let_def.get("e", "Unknown"),
-        "type": let_def.get("enftype", ""),
-        "predicates": extract_predicates(let_def.get("formula", {}))
-    } for let_def in lets_array]
+    """Extract LET definitions from normal JSON format (from 'lets' array).
+    
+    Returns:
+        dict: Mapping from LET definition name to definition data
+    """
+    definitions_dict = {}
+    
+    for let_def in lets_array:
+        # Extract events with monotonicity information
+        events_list = let_def.get("events", [])
+        events_dict = {event["name"]: event["polarity"] for event in events_list} if isinstance(events_list, list) else {}
+        
+        definition = {
+            "name": let_def.get("e", "Unknown"),
+            "type": let_def.get("enftype", ""),
+            "predicates": extract_predicates(let_def.get("formula", {})),
+            "events": events_dict
+        }
+        definitions_dict[definition["name"]] = definition
+    
+    return definitions_dict
 
 
 def extract_implications(node, implications=None):
@@ -128,7 +143,7 @@ def extract_top_level_rules(instrs):
                 events_dict = {event["name"]: event["polarity"] for event in events_list}
                 
                 rule = {
-                    "id": idx,
+                    "id": f"RULE_{idx}",
                     "type": rule_type,
                     "filter": extract_predicates(recipe_by.get("filter", {})),
                     "effects": extract_predicates(recipe_by.get("effects", {})),

@@ -40,6 +40,12 @@ def create_graph(json_file, output_file, mode="original"):
         rules = extract_top_level_rules(formula["instrs"])
         print(f"Found {len(rules)} top-level rules")
     
+    # Extract LET definitions
+    let_definitions_dict = {}
+    if "lets" in formula:
+        let_definitions_dict = extract_let_definitions_normal(formula["lets"])
+        print(f"Found {len(let_definitions_dict)} LET definitions")
+    
     # Create network and configure physics
     net = Network(height="900px", width="100%", directed=True, 
                   notebook=False, bgcolor="#ffffff", font_color="#333333")
@@ -50,7 +56,7 @@ def create_graph(json_file, output_file, mode="original"):
     add_rule_nodes(net, rules)
     
     # Add edges between rules
-    edge_count = add_rule_edges(net, rules)
+    edge_count = add_rule_edges(net, rules, let_definitions_dict)
     print(f"Created {edge_count} edges between rules")
     
     # Compute backward-reachable partitions
@@ -69,7 +75,7 @@ def create_graph(json_file, output_file, mode="original"):
     net.save_graph(output_file)
     
     # Prepare data for HTML template
-    all_node_ids = sorted([f"RULE_{rule['id']}" for rule in rules])
+    all_node_ids = sorted([rule['id'] for rule in rules])
     leaf_node_names_json = json.dumps(list(leaf_nodes))
     source_node_names_json = json.dumps(list(source_nodes))
     scc_map_json = json.dumps(scc_map)

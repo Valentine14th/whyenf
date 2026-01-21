@@ -10,16 +10,17 @@ from .config import NODE_COLORS, EDGE_COLORS
 def add_rule_nodes(net, rules):
     """Add rule nodes to the network."""
     for rule in rules:
-        rule_id = f"RULE_{rule['id']}"
+        rule_id = rule['id']
         rule_type = rule.get('type', 'Unknown')
         
         # Create label with rule type
         effects_list = sorted(rule['effects'])
-        label = f"Rule {rule['id']}"
+        rule_num = rule['id'].replace('RULE_', '')
+        label = f"Rule {rule_num}"
         
         # Create hover text with details
         hover_text = (
-            f"Rule {rule['id']}\n"
+            f"Rule {rule_num}\n"
             f"Type: {rule_type}\n"
             f"Filter ({len(rule['filter'])} predicates):\n" +
             "\n".join(f"  • {p}" for p in sorted(rule['filter'])) +
@@ -43,16 +44,28 @@ def add_rule_nodes(net, rules):
 
 
 
-def add_rule_edges(net, rules):
+def add_rule_edges(net, rules, let_definitions_dict=None):
     """Add edges between rules where one rule's effects appear in another's filter.
+    
+    Also handles indirect edges: when a rule's filter contains a LET definition name,
+    create edges from rules that have the LET's constituent predicates in their effects.
+    
+    Only one edge is created per node pair, combining both direct and indirect predicates.
+    
+    Args:
+        net: PyVis network
+        rules: List of rule dictionaries
+        let_definitions_dict: Dict mapping LET definition names to their data (optional)
     
     Edge color is determined by the monotonicity of shared predicates in the target rule's filter:
     - Green: All shared predicates are Monotonic
     - Orange: All shared predicates are Antimonotonic  
     - Purple: Mixed monotonicity
     """
-    edge_count = 0
+    # Collect all edge information: (from_id, to_id) -> {direct_preds, indirect_preds, events, via_lets}
+    edge_data = {}
     
+    # First pass: collect direct edges
     for rule_from in rules:
         for rule_to in rules:
             if rule_from['id'] == rule_to['id']:
@@ -62,49 +75,170 @@ def add_rule_edges(net, rules):
             common_predicates = rule_from['effects'] & rule_to['filter']
             
             if common_predicates:
-                rule_from_id = f"RULE_{rule_from['id']}"
-                rule_to_id = f"RULE_{rule_to['id']}"
-                
-                # Determine monotonicity of shared predicates in rule_to's filter
-                events = rule_to.get('events', {})
-                monotonicities = set()
-                monotonicity_details = []
-                
-                for pred in common_predicates:
-                    polarity = events.get(pred, 'Unknown')
-                    monotonicities.add(polarity)
-                    monotonicity_details.append(f"{pred} ({polarity})")
-                
-                # Determine edge color and type based on monotonicity
-                if monotonicities == {'Monotonic'}:
-                    edge_color = "#27ae60"  # Green for monotonic
-                    monotonicity_type = "monotonic"
-                elif monotonicities == {'Antimonotonic'}:
-                    edge_color = "#e67e22"  # Orange for antimonotonic
-                    monotonicity_type = "antimonotonic"
-                else:
-                    edge_color = "#9b59b6"  # Purple for mixed
-                    monotonicity_type = "mixed"
-                
-                # Create edge label with common predicates and monotonicity
-                predicates_str = ", ".join(sorted(common_predicates))
-                title = (
-                    f"Rule {rule_from['id']} → Rule {rule_to['id']}\n"
-                    f"Shared: {predicates_str}\n"
-                    f"Monotonicity: {monotonicity_type.capitalize()}\n" +
-                    "\n".join(f"  • {detail}" for detail in sorted(monotonicity_details))
-                )
-                
-                net.add_edge(
-                    rule_from_id,
-                    rule_to_id,
-                    color={"color": edge_color, "highlight": "#e74c3c", "opacity": 0.7},
-                    width=2,
-                    title=title,
-                    label=str(len(common_predicates)),
-                    monotonicity_type=monotonicity_type
-                )
-                edge_count += 1
+                edge_key = (rule_from['id'], rule_to['id'])
+                if edge_key not in edge_data:
+                    edge_data[edge_key] = {
+                        'direct_preds': set(),
+                        'indirect_preds': {},  # LET name -> set of predicates
+                        'events': rule_to.get('events', {})
+                    }
+                edge_data[edge_key]['direct_preds'].update(common_predicates)
+    
+    # Second pass: collect indirect edges through LET definitions in filters
+    if let_definitions_dict:
+        for rule_to in rules:
+            for filter_pred in rule_to['filter']:
+                if filter_pred in let_definitions_dict:
+                    # This filter predicate is a LET definition
+                    let_def = let_definitions_dict[filter_pred]
+                    let_constituent_preds = let_def['predicates']
+                    let_events = let_def.get('events', {})
+                    
+                    # Find rules that have any of the LET's constituent predicates in their effects
+                    for rule_from in rules:
+                        if rule_from['id'] == rule_to['id']:
+                            continue
+                        
+                        # Check if any of rule_from's effects are in the LET's constituent predicates
+                        common_predicates = rule_from['effects'] & let_constituent_preds
+                        
+                        if common_predicates:
+                            edge_key = (rule_from['id'], rule_to['id'])
+                            if edge_key not in edge_data:
+                                edge_data[edge_key] = {
+                                    'direct_preds': set(),
+                                    'indirect_preds': {},
+                                    'events': {}
+                                }
+                            
+                            # Store indirect predicates grouped by LET name
+                            edge_data[edge_key]['indirect_preds'][filter_pred] = common_predicates
+                            # Merge events from LET definition
+                            edge_data[edge_key]['events'].update(let_events)
+        
+        # Also handle LET definitions in effects
+        for rule_from in rules:
+            for effect_pred in rule_from['effects']:
+                if effect_pred in let_definitions_dict:
+                    # This effect predicate is a LET definition
+                    let_def = let_definitions_dict[effect_pred]
+                    let_constituent_preds = let_def['predicates']
+                    let_events = let_def.get('events', {})
+                    
+                    # Find rules that have any of the LET's constituent predicates in their filter
+                    for rule_to in rules:
+                        if rule_from['id'] == rule_to['id']:
+                            continue
+                        
+                        # Check if any of rule_to's filters are in the LET's constituent predicates
+                        common_predicates = rule_to['filter'] & let_constituent_preds
+                        
+                        if common_predicates:
+                            edge_key = (rule_from['id'], rule_to['id'])
+                            if edge_key not in edge_data:
+                                edge_data[edge_key] = {
+                                    'direct_preds': set(),
+                                    'indirect_preds': {},
+                                    'events': {}
+                                }
+                            
+                            # Store indirect predicates grouped by LET name
+                            edge_data[edge_key]['indirect_preds'][effect_pred] = common_predicates
+                            # Merge events from LET definition
+                            edge_data[edge_key]['events'].update(let_events)
+    
+    # Third pass: create edges with combined information
+    edge_count = 0
+    stats = {
+        'monotonic': 0,
+        'antimonotonic': 0,
+        'mixed': 0,
+        'direct_only': 0,
+        'indirect_only': 0,
+        'both': 0
+    }
+    
+    for (rule_from_id, rule_to_id), data in edge_data.items():
+        direct_preds = data['direct_preds']
+        indirect_preds = data['indirect_preds']
+        events = data['events']
+        
+        # Track edge type
+        has_direct = len(direct_preds) > 0
+        has_indirect = len(indirect_preds) > 0
+        
+        if has_direct and has_indirect:
+            stats['both'] += 1
+        elif has_direct:
+            stats['direct_only'] += 1
+        elif has_indirect:
+            stats['indirect_only'] += 1
+        
+        # Combine all predicates
+        all_predicates = direct_preds.copy()
+        for let_preds in indirect_preds.values():
+            all_predicates.update(let_preds)
+        
+        # Determine monotonicity of all shared predicates
+        monotonicities = set()
+        monotonicity_details = []
+        
+        for pred in all_predicates:
+            polarity = events.get(pred, 'Unknown')
+            monotonicities.add(polarity)
+            monotonicity_details.append(f"{pred} ({polarity})")
+        
+        # Determine edge color and type based on monotonicity
+        if monotonicities == {'Monotonic'}:
+            edge_color = "#27ae60"  # Green for monotonic
+            monotonicity_type = "monotonic"
+            stats['monotonic'] += 1
+        elif monotonicities == {'Antimonotonic'}:
+            edge_color = "#e67e22"  # Orange for antimonotonic
+            monotonicity_type = "antimonotonic"
+            stats['antimonotonic'] += 1
+        else:
+            edge_color = "#9b59b6"  # Purple for mixed
+            monotonicity_type = "mixed"
+            stats['mixed'] += 1
+        
+        # Create edge title with both direct and indirect information
+        rule_from_num = rule_from_id.replace('RULE_', '')
+        rule_to_num = rule_to_id.replace('RULE_', '')
+        
+        title = f"Rule {rule_from_num} → Rule {rule_to_num}\n"
+        
+        if direct_preds:
+            direct_str = ", ".join(sorted(direct_preds))
+            title += f"Direct: {direct_str}\n"
+        
+        if indirect_preds:
+            for let_name, let_preds in sorted(indirect_preds.items()):
+                indirect_str = ", ".join(sorted(let_preds))
+                title += f"Via LET {let_name}: {indirect_str}\n"
+        
+        title += (
+            f"Monotonicity: {monotonicity_type.capitalize()}\n" +
+            "\n".join(f"  • {detail}" for detail in sorted(monotonicity_details))
+        )
+        
+        # Create edge attributes
+        edge_attrs = {
+            "color": {"color": edge_color, "highlight": "#e74c3c", "opacity": 0.7},
+            "width": 2,
+            "title": title,
+            "label": str(len(all_predicates)),
+            "monotonicity_type": monotonicity_type
+        }
+        
+        if indirect_preds:
+            edge_attrs["via_lets"] = list(indirect_preds.keys())
+        
+        net.add_edge(rule_from_id, rule_to_id, **edge_attrs)
+        edge_count += 1
+    
+    # Print statistics
+    _print_edge_statistics(edge_count, stats)
     
     return edge_count
 
@@ -510,3 +644,34 @@ def print_graph_statistics(definitions, predicate_only_names, edge_count,
             print(f"\n  Top 10 most used predicates:")
             for pred, count in most_used:
                 print(f"    - {pred}: used in {count} definition{'s' if count > 1 else ''}")
+
+
+def _print_edge_statistics(edge_count, stats):
+    """Print edge statistics including monotonicity and connection type breakdowns.
+    
+    Args:
+        edge_count: Total number of edges
+        stats: Dictionary with keys 'monotonic', 'antimonotonic', 'mixed', 
+               'direct_only', 'indirect_only', 'both'
+    """
+    print(f"\nEdge Statistics:")
+    print(f"  Total edges: {edge_count}")
+    
+    if edge_count > 0:
+        print(f"  By monotonicity:")
+        print(f"    - Monotonic: {stats['monotonic']} ({100*stats['monotonic']/edge_count:.1f}%)")
+        print(f"    - Antimonotonic: {stats['antimonotonic']} ({100*stats['antimonotonic']/edge_count:.1f}%)")
+        print(f"    - Mixed: {stats['mixed']} ({100*stats['mixed']/edge_count:.1f}%)")
+        print(f"  By connection type:")
+        print(f"    - Direct only: {stats['direct_only']} ({100*stats['direct_only']/edge_count:.1f}%)")
+        print(f"    - Indirect only (via LET): {stats['indirect_only']} ({100*stats['indirect_only']/edge_count:.1f}%)")
+        print(f"    - Both direct and indirect: {stats['both']} ({100*stats['both']/edge_count:.1f}%)")
+    else:
+        print(f"  By monotonicity:")
+        print(f"    - Monotonic: 0")
+        print(f"    - Antimonotonic: 0")
+        print(f"    - Mixed: 0")
+        print(f"  By connection type:")
+        print(f"    - Direct only: 0")
+        print(f"    - Indirect only (via LET): 0")
+        print(f"    - Both direct and indirect: 0")
