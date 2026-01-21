@@ -68,14 +68,20 @@ def _expand_predicates_recursively(predicates, let_definitions_dict, events_dict
     
     expanded = set()
     to_expand = set(predicates)
+    visited = set()  # Track predicates we've already processed
     
-    # Keep expanding until no more LETs remain
-    max_iterations = 100  # Safety limit to prevent infinite loops
+    # Safety limit to prevent infinite loops
+    max_iterations = 100
     iteration = 0
     
     while to_expand and iteration < max_iterations:
         iteration += 1
         current = to_expand.pop()
+        
+        # Skip if already processed
+        if current in visited:
+            continue
+        visited.add(current)
         
         if current in let_definitions_dict:
             # It's a LET - add its constituents to expand queue
@@ -91,7 +97,11 @@ def _expand_predicates_recursively(predicates, let_definitions_dict, events_dict
             expanded.add(current)
     
     if iteration >= max_iterations:
-        print(f"Warning: Maximum iteration limit reached during LET expansion")
+        print(f"WARNING: Maximum iteration limit reached during LET expansion!")
+        print(f"  Starting predicates: {predicates}")
+        print(f"  Remaining to expand: {to_expand}")
+        print(f"  Already visited: {len(visited)} predicates")
+        print(f"  This should never happen with the visited set - possible bug!")
     
     return expanded
 
