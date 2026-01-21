@@ -55,29 +55,6 @@ const GraphNodes = (function() {
         highlightCallback();
     }
     
-    function filterDropdownByVisibility(network, connectedNodes, searchInput, checkboxItems) {
-        var allNodes = network.body.data.nodes.get();
-        var visibleNodeNames = new Set();
-        
-        // Build set of visible node names
-        allNodes.forEach(function(node) {
-            if (connectedNodes.has(node.id)) {
-                visibleNodeNames.add(getNodeName(node.id));
-            }
-        });
-        
-        // Filter dropdown items
-        var searchFilter = searchInput.value.toLowerCase();
-        checkboxItems.forEach(function(item) {
-            var checkbox = item.querySelector('input[type="checkbox"]');
-            var label = item.querySelector('label').textContent.toLowerCase();
-            var matchesSearch = label.includes(searchFilter);
-            var isVisible = visibleNodeNames.has(checkbox.value);
-            
-            item.style.display = (matchesSearch && isVisible) ? 'flex' : 'none';
-        });
-    }
-    
     function setupLeafSourceNodeHandlers(leafNodeNames, sourceNodeNames, checkboxes, selectedNodes, updateCallback, highlightCallback) {
         var selectLeafNodesCheckbox = document.getElementById('select-leaf-nodes');
         if (selectLeafNodesCheckbox && typeof leafNodeNames !== 'undefined') {
@@ -97,21 +74,10 @@ const GraphNodes = (function() {
     function setupSearchHandlers(searchInput, checkboxItems, network, isEdgeHidden) {
         searchInput.addEventListener('input', function() {
             var filter = this.value.toLowerCase();
-            var connectedNodes = getVisibleNodesFromEdges(network, isEdgeHidden);
-            
-            var allNodes = network.body.data.nodes.get();
-            var visibleNodeNames = new Set();
-            allNodes.forEach(function(node) {
-                if (connectedNodes.has(node.id)) {
-                    visibleNodeNames.add(getNodeName(node.id));
-                }
-            });
             
             checkboxItems.forEach(function(item) {
-                var checkbox = item.querySelector('input[type="checkbox"]');
                 var label = item.querySelector('label').textContent.toLowerCase();
-                var isVisible = visibleNodeNames.has(checkbox.value);
-                item.style.display = (label.includes(filter) && isVisible) ? 'flex' : 'none';
+                item.style.display = label.includes(filter) ? 'flex' : 'none';
             });
         });
     }
@@ -147,7 +113,6 @@ const GraphNodes = (function() {
         findMatchingNodeIds,
         getVisibleNodesFromEdges,
         toggleNodeSelection,
-        filterDropdownByVisibility,
         setupLeafSourceNodeHandlers,
         setupSearchHandlers,
         setupNodeCheckboxHandlers,

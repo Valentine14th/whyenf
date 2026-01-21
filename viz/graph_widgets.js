@@ -62,13 +62,10 @@ document.addEventListener('DOMContentLoaded', function() {
     };
     
     var handleEdgeVisibilityUpdate = function() {
-        var filterDropdownCallback = function(connectedNodes) {
-            GraphNodes.filterDropdownByVisibility(network, connectedNodes, searchInput, checkboxItems);
-        };
         var updateRankingsCallback = function() {
             GraphRankings.updateRankings(network, selectedNodes, checkboxes, isEdgeHidden);
         };
-        GraphEdges.handleEdgeVisibilityUpdate(network, selectedPartitions, selectedNodes, partitions, isEdgeHidden, highlightNodes, filterDropdownCallback, updateRankingsCallback);
+        GraphEdges.handleEdgeVisibilityUpdate(network, selectedPartitions, selectedNodes, partitions, isEdgeHidden, highlightNodes, updateRankingsCallback);
     };
     
     var updateFilterModeControls = function() {

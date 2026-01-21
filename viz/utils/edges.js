@@ -12,7 +12,7 @@ const GraphEdges = (function() {
         return false;
     }
 
-    function handleEdgeVisibilityUpdate(network, selectedPartitions, selectedNodes, partitions, isEdgeHidden, highlightCallback, filterDropdownCallback, updateRankingsCallback) {
+    function handleEdgeVisibilityUpdate(network, selectedPartitions, selectedNodes, partitions, isEdgeHidden, highlightCallback, updateRankingsCallback) {
         // If partitions are selected, apply partition filter first
         if (selectedPartitions.size > 0) {
             GraphPartitions.applyPartitionFilter(network, selectedPartitions, partitions, isEdgeHidden);
