@@ -210,8 +210,14 @@ var GraphUIState = (function() {
                     ' (showing ' + result.visibleCount + ')';
                 searchResults.style.color = '#2c3e50';
             } else {
-                searchResults.textContent = 'Showing ' + result.selectedCount + ' selected node' + (result.selectedCount > 1 ? 's' : '') + 
-                    ' with ' + result.neighborCount + ' neighbor' + (result.neighborCount !== 1 ? 's' : '');
+                // Check if we're showing common edges (multiple nodes selected)
+                if (result.commonEdgeCount !== undefined) {
+                    searchResults.textContent = 'Showing ' + result.selectedCount + ' selected node' + (result.selectedCount > 1 ? 's' : '') + 
+                        ' with ' + result.commonEdgeCount + ' common edge' + (result.commonEdgeCount !== 1 ? 's' : '');
+                } else {
+                    searchResults.textContent = 'Showing ' + result.selectedCount + ' selected node' + (result.selectedCount > 1 ? 's' : '') + 
+                        ' with ' + result.neighborCount + ' neighbor' + (result.neighborCount !== 1 ? 's' : '');
+                }
                 searchResults.style.color = '#27ae60';
             }
         }

@@ -46,9 +46,17 @@ var GraphHighlighting = (function() {
             result.mode = 'exclude';
         } else {
             var edgeDirection = GraphFilters.getSelectedEdgeDirection(edgeDirectionRadios);
-            var connectedNodeIds = GraphFilters.buildNeighborhoodFromEdges(network, matchingIds, edgeDirection, isEdgeHidden);
-            result = GraphFilters.applyIncludeMode(network, matchingIds, connectedNodeIds, edgeDirection, isEdgeHidden);
-            result.mode = 'include';
+            
+            // If multiple nodes selected, show only common edges (edges between selected nodes)
+            // If single node selected, show neighbors as usual
+            if (matchingIds.size > 1) {
+                result = GraphFilters.applyCommonEdgesMode(network, matchingIds, isEdgeHidden);
+                result.mode = 'include';
+            } else {
+                var connectedNodeIds = GraphFilters.buildNeighborhoodFromEdges(network, matchingIds, edgeDirection, isEdgeHidden);
+                result = GraphFilters.applyIncludeMode(network, matchingIds, connectedNodeIds, edgeDirection, isEdgeHidden);
+                result.mode = 'include';
+            }
         }
         
         GraphUIState.updateSearchResults(searchResults, result, selectedNodes, selectedPartitions);

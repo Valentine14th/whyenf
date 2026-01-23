@@ -10,12 +10,13 @@
     <div id="search-container">
         <div id="search-header">
             <span id="search-label">Filters</span>
-            {% if filter_reflexive %}
-            <span style="background: #e74c3c; color: white; padding: 3px 8px; border-radius: 3px; font-size: 10px; font-weight: 600; margin-left: 8px;">REFLEXIVE FILTERED</span>
+            {% if filter_polarity %}
+            <span style="background: #e74c3c; color: white; padding: 3px 8px; border-radius: 3px; font-size: 10px; font-weight: 600; margin-left: 8px;">POLARITY FILTERED</span>
             {% endif %}
             <button id="toggle-btn">Hide</button>
         </div>
         <div id="search-content">
+            <div id="search-results"></div>
             <div style="font-size: 13px; color: #2c3e50; margin-bottom: 10px; margin-top: 15px; font-weight: 600; border-bottom: 1px solid #e0e0e0; padding-bottom: 5px;">Filter Edges</div>
             <div id="edge-controls">
                 {{ edge_controls }}
@@ -88,7 +89,6 @@
             <div id="button-container">
                 <button class="btn btn-clear" id="btn-clear">Clear All</button>
             </div>
-            <div id="search-results"></div>
         </div>
     </div>
     

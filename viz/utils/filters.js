@@ -128,6 +128,46 @@ const GraphFilters = (function() {
         };
     }
 
+    function applyCommonEdgesMode(network, matchingIds, isEdgeHiddenByTypeFilter) {
+        const allNodes = network.body.data.nodes.get();
+        const allEdges = network.body.data.edges.get();
+        
+        let commonEdgeCount = 0;
+        
+        // Update edge visibility - only show edges where BOTH endpoints are in selected nodes
+        const updatedEdges = allEdges.map(edge => {
+            if (isEdgeHiddenByTypeFilter(edge)) {
+                return { ...edge, hidden: true, physics: false };
+            }
+            
+            const fromSelected = matchingIds.has(edge.from);
+            const toSelected = matchingIds.has(edge.to);
+            const edgeVisible = fromSelected && toSelected;
+            
+            if (edgeVisible) {
+                commonEdgeCount++;
+            }
+            
+            return { ...edge, hidden: !edgeVisible, physics: edgeVisible };
+        });
+        
+        network.body.data.edges.update(updatedEdges);
+        
+        // Update node visibility - only show selected nodes
+        const updatedNodes = allNodes.map(node => {
+            return { ...node, hidden: !matchingIds.has(node.id) };
+        });
+        
+        network.body.data.nodes.update(updatedNodes);
+        network.selectNodes(Array.from(matchingIds));
+        
+        return {
+            selectedCount: matchingIds.size,
+            neighborCount: 0,
+            commonEdgeCount: commonEdgeCount
+        };
+    }
+
     function updateEdgeVisibility(network, selectedNodes, isEdgeHiddenByTypeFilter, highlightNodes) {
         const edges = network.body.data.edges.get();
         const nodes = network.body.data.nodes.get();
@@ -178,6 +218,7 @@ const GraphFilters = (function() {
         buildNeighborhoodFromEdges,
         applyExcludeMode,
         applyIncludeMode,
+        applyCommonEdgesMode,
         updateEdgeVisibility,
         setupFilterModeHandlers
     };
