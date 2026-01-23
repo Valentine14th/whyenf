@@ -26,6 +26,75 @@ const GraphPartitions = (function() {
     }
 
     /**
+     * Get nodes that are common to ALL selected partitions (intersection)
+     * @param {Object} partitions - Object mapping partition ID to array of node IDs
+     * @param {Set} selectedPartitionIds - Set of selected partition IDs
+     * @returns {Set} Set of node IDs present in all selected partitions
+     */
+    function getCommonNodes(partitions, selectedPartitionIds) {
+        if (selectedPartitionIds.size === 0) {
+            return new Set();
+        }
+        
+        const partitionArrays = Array.from(selectedPartitionIds).map(id => 
+            partitions[id] ? new Set(partitions[id]) : new Set()
+        );
+        
+        if (partitionArrays.length === 0) {
+            return new Set();
+        }
+        
+        // Start with the first partition
+        const commonNodes = new Set(partitionArrays[0]);
+        
+        // Intersect with all other partitions
+        for (let i = 1; i < partitionArrays.length; i++) {
+            const currentPartition = partitionArrays[i];
+            // Remove nodes not in current partition
+            for (const node of commonNodes) {
+                if (!currentPartition.has(node)) {
+                    commonNodes.delete(node);
+                }
+            }
+        }
+        
+        return commonNodes;
+    }
+
+    /**
+     * Reset node highlighting (remove golden border and thick width)
+     * @param {Object} node - Node object from vis.js
+     * @param {Object} update - Update object to modify
+     */
+    function resetNodeHighlight(node, update) {
+        if (node.borderWidth === 5) {
+            update.borderWidth = 2;
+        }
+        if (node.color && node.color.border === '#FFD700') {
+            update.color = {border: node.originalBorder || '#2B7CE9'};
+        }
+    }
+
+    /**
+     * Apply highlight to a common node (golden border and thick width)
+     * @param {Object} node - Node object from vis.js
+     * @param {Object} update - Update object to modify
+     * @param {vis.Network} network - The vis.js network instance
+     */
+    function highlightCommonNode(node, update, network) {
+        // Store original border color if not already stored
+        if (!node.originalBorder && node.color && node.color.border) {
+            const originalNode = network.body.data.nodes.get(node.id);
+            network.body.data.nodes.update({
+                id: node.id, 
+                originalBorder: originalNode.color.border
+            });
+        }
+        update.borderWidth = 5;
+        update.color = {border: '#FFD700'}; // Gold color for common nodes
+    }
+
+    /**
      * Apply partition filter to the graph
      * @param {vis.Network} network - The vis.js network instance
      * @param {Set} selectedPartitionIds - Set of selected partition IDs
@@ -89,9 +158,13 @@ const GraphPartitions = (function() {
      */
     function applyPartitionFilterWithMode(network, selectedPartitionIds, partitions, filterMode, edgeDirection, isEdgeHidden) {
         if (selectedPartitionIds.size === 0) {
-            // No partitions selected, show all nodes
+            // No partitions selected, show all nodes with default styling
             const allNodes = network.body.data.nodes.get();
-            const nodeUpdates = allNodes.map(node => ({id: node.id, hidden: false}));
+            const nodeUpdates = allNodes.map(node => {
+                const update = {id: node.id, hidden: false};
+                resetNodeHighlight(node, update);
+                return update;
+            });
             network.body.data.nodes.update(nodeUpdates);
             
             const allEdges = network.body.data.edges.get();
@@ -104,6 +177,11 @@ const GraphPartitions = (function() {
         // Get nodes in selected partitions
         const partitionNodeIds = getNodesInPartitions(partitions, selectedPartitionIds);
         
+        // Get common nodes if multiple partitions selected
+        const commonNodeIds = selectedPartitionIds.size > 1 
+            ? getCommonNodes(partitions, selectedPartitionIds) 
+            : new Set();
+        
         if (filterMode === 'exclude') {
             // Exclude mode: hide partition nodes
             const allNodes = network.body.data.nodes.get();
@@ -114,7 +192,15 @@ const GraphPartitions = (function() {
                 const shouldHide = partitionNodeIds.has(node.id);
                 if (shouldHide) excludedCount++;
                 else visibleCount++;
-                return {id: node.id, hidden: shouldHide};
+                
+                const update = {id: node.id, hidden: shouldHide};
+                
+                // Reset highlight for excluded nodes or non-common visible nodes
+                if (shouldHide || !commonNodeIds.has(node.id)) {
+                    resetNodeHighlight(node, update);
+                }
+                
+                return update;
             });
             network.body.data.nodes.update(nodeUpdates);
             
@@ -129,7 +215,7 @@ const GraphPartitions = (function() {
             });
             network.body.data.edges.update(edgeUpdates);
             
-            return { visibleCount, excludedCount, mode: 'exclude' };
+            return { visibleCount, excludedCount, commonCount: commonNodeIds.size, mode: 'exclude' };
         } else {
             // Include mode: show only partition nodes and edges between them
             const allNodes = network.body.data.nodes.get();
@@ -137,7 +223,19 @@ const GraphPartitions = (function() {
             
             const nodeUpdates = allNodes.map(node => {
                 const shouldShow = partitionNodeIds.has(node.id);
-                return {id: node.id, hidden: !shouldShow};
+                const isCommon = commonNodeIds.has(node.id);
+                
+                const update = {id: node.id, hidden: !shouldShow};
+                
+                // Highlight common nodes with golden border and increased width
+                if (shouldShow && isCommon) {
+                    highlightCommonNode(node, update, network);
+                } else if (shouldShow) {
+                    // Reset highlighting for non-common nodes
+                    resetNodeHighlight(node, update);
+                }
+                
+                return update;
             });
             network.body.data.nodes.update(nodeUpdates);
             
@@ -153,7 +251,7 @@ const GraphPartitions = (function() {
             });
             network.body.data.edges.update(edgeUpdates);
             
-            return { selectedCount, neighborCount: 0, mode: 'include' };
+            return { selectedCount, neighborCount: 0, commonCount: commonNodeIds.size, mode: 'include' };
         }
     }
 
@@ -218,6 +316,7 @@ const GraphPartitions = (function() {
 
     return {
         getNodesInPartitions,
+        getCommonNodes,
         applyPartitionFilter,
         applyPartitionFilterWithMode,
         initializePartitionStats,

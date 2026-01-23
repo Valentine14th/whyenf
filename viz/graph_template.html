@@ -10,6 +10,9 @@
     <div id="search-container">
         <div id="search-header">
             <span id="search-label">Filters</span>
+            {% if filter_reflexive %}
+            <span style="background: #e74c3c; color: white; padding: 3px 8px; border-radius: 3px; font-size: 10px; font-weight: 600; margin-left: 8px;">REFLEXIVE FILTERED</span>
+            {% endif %}
             <button id="toggle-btn">Hide</button>
         </div>
         <div id="search-content">

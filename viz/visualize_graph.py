@@ -19,7 +19,8 @@ from utils.config import PHYSICS_OPTIONS
 from utils.graph import (
     get_node_id, extract_node_name, add_predicate_nodes, add_let_definition_nodes,
     add_let_definition_edges, add_causality_edges, add_implication_edges,
-    find_source_and_leaf_nodes, print_graph_statistics, compute_backward_partitions
+    find_source_and_leaf_nodes, print_graph_statistics, compute_backward_partitions,
+    filter_polarity_edges
 )
 from utils.html import (
     build_edge_controls_html, build_checkbox_items_html, build_partition_controls_html,
@@ -27,7 +28,7 @@ from utils.html import (
 )
 
 
-def create_graph(json_file, output_file, mode="original"):
+def create_graph(json_file, output_file, mode="original", filter_polarity=False):
     """Create PyVis graph from formula JSON showing LET definition dependencies or causality rules."""
     
     # Load JSON
@@ -58,6 +59,11 @@ def create_graph(json_file, output_file, mode="original"):
     # Add edges between rules
     edge_count = add_rule_edges(net, rules, let_definitions_dict)
     print(f"Created {edge_count} edges between rules")
+    
+    # Filter polarity edges if requested
+    if filter_polarity:
+        removed_count = filter_polarity_edges(net, rules)
+        print(f"Remaining edges after filtering: {edge_count - removed_count}")
     
     # Compute backward-reachable partitions
     sccs_all, scc_map_all, partitions, partition_labels, condensed, stats = compute_backward_partitions(net)
@@ -99,7 +105,7 @@ def create_graph(json_file, output_file, mode="original"):
         template_file, edge_controls_html, checkbox_items_html,
         leaf_node_names_json, source_node_names_json,
         scc_map_json, sccs_json, partitions_json, partition_labels_json,
-        partition_controls_html, stats_json
+        partition_controls_html, stats_json, filter_polarity
     )
     
     # Inject widget into generated graph HTML
@@ -116,6 +122,8 @@ if __name__ == "__main__":
     parser.add_argument('output', help='Output HTML file (will be created in viz/ directory)')
     parser.add_argument('--normal', action='store_true', 
                        help='Process normal mode JSON (with CauByCau/CauBySup instead of simple implications)')
+    parser.add_argument('--filter-polarity', action='store_true',
+                       help='Filter out polarity edges (CauByCau+monotonic, CauBySup+antimonotonic)')
     
     args = parser.parse_args()
     
@@ -126,4 +134,4 @@ if __name__ == "__main__":
     output_basename = os.path.basename(args.output)
     output_path = os.path.join(script_dir, output_basename)
     
-    create_graph(args.input, output_path, mode=mode)
+    create_graph(args.input, output_path, mode=mode, filter_polarity=args.filter_polarity)

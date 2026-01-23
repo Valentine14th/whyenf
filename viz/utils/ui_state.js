@@ -187,13 +187,21 @@ var GraphUIState = (function() {
     function updateSearchResults(searchResults, result, selectedNodes, selectedPartitions) {
         if (selectedPartitions.size > 0) {
             if (result.mode === 'exclude') {
-                searchResults.textContent = 'Excluded ' + result.excludedCount + ' node' + (result.excludedCount !== 1 ? 's' : '') + 
+                var baseText = 'Excluded ' + result.excludedCount + ' node' + (result.excludedCount !== 1 ? 's' : '') + 
                     ' in ' + selectedPartitions.size + ' partition' + (selectedPartitions.size !== 1 ? 's' : '') + 
                     ' (showing ' + result.visibleCount + ')';
+                if (result.commonCount && result.commonCount > 0 && selectedPartitions.size > 1) {
+                    baseText += ' — ' + result.commonCount + ' common node' + (result.commonCount !== 1 ? 's' : '');
+                }
+                searchResults.textContent = baseText;
             } else {
-                searchResults.textContent = 'Showing ' + result.selectedCount + ' node' + (result.selectedCount !== 1 ? 's' : '') + 
-                    ' in ' + selectedPartitions.size + ' partition' + (selectedPartitions.size !== 1 ? 's' : '') + 
-                    ' with ' + result.neighborCount + ' neighbor' + (result.neighborCount !== 1 ? 's' : '');
+                var baseText = 'Showing ' + result.selectedCount + ' node' + (result.selectedCount !== 1 ? 's' : '') + 
+                    ' in ' + selectedPartitions.size + ' partition' + (selectedPartitions.size !== 1 ? 's' : '');
+                if (result.commonCount && result.commonCount > 0 && selectedPartitions.size > 1) {
+                    baseText += ' (' + result.commonCount + ' highlighted common)';
+                }
+                baseText += ' with ' + result.neighborCount + ' neighbor' + (result.neighborCount !== 1 ? 's' : '');
+                searchResults.textContent = baseText;
             }
             searchResults.style.color = '#2980b9';
         } else if (selectedNodes.size > 0) {
@@ -221,6 +229,21 @@ var GraphUIState = (function() {
             var selectSourceNodesCheckbox = document.getElementById('select-source-nodes');
             if (selectLeafNodesCheckbox) selectLeafNodesCheckbox.checked = false;
             if (selectSourceNodesCheckbox) selectSourceNodesCheckbox.checked = false;
+            
+            // Clear node highlighting (golden borders for common nodes)
+            var allNodes = network.body.data.nodes.get();
+            var nodeUpdates = allNodes.map(function(node) {
+                var update = {id: node.id, hidden: false};
+                // Reset any golden border highlighting
+                if (node.borderWidth === 5) {
+                    update.borderWidth = 2;
+                }
+                if (node.color && node.color.border === '#FFD700') {
+                    update.color = {border: node.originalBorder || '#2B7CE9'};
+                }
+                return update;
+            });
+            network.body.data.nodes.update(nodeUpdates);
             
             updateCallback();
             network.selectNodes([]);

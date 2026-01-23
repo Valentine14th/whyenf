@@ -215,8 +215,80 @@ def add_rule_edges(net, rules, let_definitions_dict=None):
     
     # Print statistics
     _print_edge_statistics(edge_count, stats)
+    shared_predicate_count = _compute_shared_predicates(net.edges)
+    _print_shared_predicates(shared_predicate_count)
     
     return edge_count
+
+
+def filter_polarity_edges(net, rules):
+    """Remove polarity edges from the graph.
+    
+    Removes edges where:
+    - Source node is CauBySup AND edge is monotonic, OR
+    - Source node is CauByCau AND edge is antimonotonic
+    
+    These are edges where a rule causally depends on predicates with the opposite
+    monotonicity type (polarity causality).
+    
+    Args:
+        net: PyVis network with edges to filter
+        rules: List of rule dictionaries with 'id' and 'type' fields
+    
+    Returns:
+        Number of edges removed
+    """
+    # Build mapping of rule ID to rule type
+    rule_type_map = {rule['id']: rule.get('type', 'Unknown') for rule in rules}
+    
+    # Find edges to remove
+    edges_to_remove = []
+    for i, edge in enumerate(net.edges):
+        source_id = edge['from']
+        monotonicity_type = edge.get('monotonicity_type', '')
+        
+        # Get source node type
+        source_type = rule_type_map.get(source_id)
+        
+        # Check if edge should be removed
+        if (source_type == 'CauBySup' and monotonicity_type == 'monotonic') or \
+           (source_type == 'CauByCau' and monotonicity_type == 'antimonotonic'):
+            edges_to_remove.append(i)
+    
+    # Remove edges in reverse order to maintain indices
+    removed_count = len(edges_to_remove)
+    for idx in reversed(edges_to_remove):
+        net.edges.pop(idx)
+    
+    if removed_count > 0:
+        print(f"\nFiltered {removed_count} polarity edges:")
+        print(f"  - CauByCau with antimonotonic edges")
+        print(f"  - CauBySup with monotonic edges")
+        
+        # Count remaining edges by monotonicity
+        remaining_stats = {
+            'monotonic': 0,
+            'antimonotonic': 0,
+            'mixed': 0
+        }
+        for edge in net.edges:
+            monotonicity_type = edge.get('monotonicity_type', '')
+            if monotonicity_type in remaining_stats:
+                remaining_stats[monotonicity_type] += 1
+        
+        remaining_total = sum(remaining_stats.values())
+        print(f"\nRemaining edges after filtering: {remaining_total}")
+        if remaining_total > 0:
+            print(f"  By monotonicity:")
+            print(f"    - Monotonic: {remaining_stats['monotonic']} ({100*remaining_stats['monotonic']/remaining_total:.1f}%)")
+            print(f"    - Antimonotonic: {remaining_stats['antimonotonic']} ({100*remaining_stats['antimonotonic']/remaining_total:.1f}%)")
+            print(f"    - Mixed: {remaining_stats['mixed']} ({100*remaining_stats['mixed']/remaining_total:.1f}%)")
+        
+        # Compute and print shared predicates after filtering
+        shared_after = _compute_shared_predicates(net.edges)
+        _print_shared_predicates(shared_after, " (after polarity filtering)")
+    
+    return removed_count
 
 
 def get_node_id(pred_name, let_definition_names):
@@ -467,6 +539,10 @@ def _merge_partitions(partitions, partition_labels, sccs_all):
     merged_partitions = {}
     merged_labels = {}
     for frozen_nodes, anchor_indices in node_set_to_anchors.items():
+        # Skip partitions with 0 non-leaf nodes
+        if len(frozen_nodes) == 0:
+            continue
+            
         # Use the first anchor index as the key for the merged partition
         key_idx = anchor_indices[0]
         # Include all anchor nodes from all merged partitions
@@ -504,6 +580,53 @@ def _print_partition_statistics(sccs_all, anchor_sccs, partitions, merged_partit
     print(f"Found {len(anchor_sccs)} {partition_type} SCCs in condensed graph")
     print(f"Computed {len(partitions)} initial {partition_type}-based partitions")
     print(f"Merged into {len(merged_partitions)} unique partitions\n")
+
+
+def _print_common_nodes(partitions, partition_labels):
+    """Print nodes that are common to all partitions.
+    
+    Args:
+        partitions: Dict mapping partition index to set of node IDs
+        partition_labels: Dict mapping partition index to label string
+    """
+    if not partitions:
+        print("No partitions to analyze for common nodes.")
+        return
+    
+    if len(partitions) == 1:
+        print("Only one partition exists - all nodes are 'common' to that partition.")
+        return
+    
+    # Compute intersection of all partitions
+    partition_list = list(partitions.values())
+    common_nodes = set(partition_list[0])
+    
+    for partition_nodes in partition_list[1:]:
+        common_nodes &= partition_nodes
+    
+    # Print results
+    print(f"Nodes common to all {len(partitions)} partitions: {len(common_nodes)}")
+    
+    if common_nodes:
+        # Sort by extracting rule number for nicer display
+        def sort_key(node_id):
+            if node_id.startswith('RULE_'):
+                try:
+                    return (0, int(node_id.replace('RULE_', '')))
+                except:
+                    return (0, 0)
+            return (1, node_id)
+        
+        sorted_nodes = sorted(common_nodes, key=sort_key)
+        
+        # Print in columns for better readability
+        print("  Common nodes:")
+        for i in range(0, len(sorted_nodes), 5):
+            batch = sorted_nodes[i:i+5]
+            print("    " + ", ".join(batch))
+        print()
+    else:
+        print("  No nodes are common to all partitions.\n")
 
 
 def compute_backward_partitions(net):
@@ -548,6 +671,9 @@ def compute_backward_partitions(net):
     )
     
     _print_partition_statistics(sccs_all, leaf_sccs, partitions, merged_partitions, "backward")
+    
+    # Compute and print common nodes across all partitions
+    _print_common_nodes(merged_partitions, merged_labels)
     
     stats = {
         'initial_count': len(partitions),
@@ -620,6 +746,47 @@ def print_graph_statistics(definitions, predicate_only_names, edge_count,
             print(f"\n  Top 10 most used predicates:")
             for pred, count in most_used:
                 print(f"    - {pred}: used in {count} definition{'s' if count > 1 else ''}")
+
+
+def _compute_shared_predicates(edges):
+    """Compute how often each predicate is shared across edges.
+    
+    Args:
+        edges: List of edge dictionaries with 'title' field containing predicate info
+    
+    Returns:
+        Dictionary mapping predicate name to count of edges it appears in
+    """
+    shared_predicate_count = {}
+    
+    for edge in edges:
+        title = edge.get('title', '')
+        # Extract predicates from title line "Shared predicates: pred1, pred2, ..."
+        if 'Shared predicates:' in title:
+            lines = title.split('\n')
+            for line in lines:
+                if line.startswith('Shared predicates:'):
+                    pred_str = line.replace('Shared predicates:', '').strip()
+                    predicates = [p.strip() for p in pred_str.split(',')]
+                    for pred in predicates:
+                        if pred:
+                            shared_predicate_count[pred] = shared_predicate_count.get(pred, 0) + 1
+    
+    return shared_predicate_count
+
+
+def _print_shared_predicates(shared_predicate_count, label=""):
+    """Print top 10 most shared predicates.
+    
+    Args:
+        shared_predicate_count: Dict mapping predicate name to count
+        label: Optional label to distinguish different printouts
+    """
+    if shared_predicate_count:
+        top_shared = sorted(shared_predicate_count.items(), key=lambda x: x[1], reverse=True)[:10]
+        print(f"\n  Top 10 most shared predicates{label}:")
+        for pred, count in top_shared:
+            print(f"    - {pred}: shared in {count} edge{'s' if count > 1 else ''}")
 
 
 def _print_edge_statistics(edge_count, stats):

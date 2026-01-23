@@ -81,7 +81,7 @@ def build_partition_controls_html(partitions, partition_labels):
 def load_and_populate_template(template_file, edge_controls_html, checkbox_items_html, 
                                leaf_nodes_json, source_nodes_json,
                                scc_map_json, sccs_json, partitions_json, partition_labels_json,
-                               partition_controls_html, stats_json):
+                               partition_controls_html, stats_json, filter_polarity=False):
     """Load HTML template and replace placeholders with generated content."""
     with open(template_file, 'r') as f:
         template_content = f.read()
@@ -98,7 +98,8 @@ def load_and_populate_template(template_file, edge_controls_html, checkbox_items
         sccs_json=sccs_json,
         partitions_json=partitions_json,
         partition_labels_json=partition_labels_json,
-        stats_json=stats_json
+        stats_json=stats_json,
+        filter_polarity=filter_polarity
     )
 
     return widget_html
