@@ -61,32 +61,38 @@ def _expand_predicates_recursively(predicates, let_definitions_dict, events_dict
         events_dict: Optional dict to accumulate event polarities
     
     Returns:
-        Set of fully expanded base predicates
+        Tuple of (expanded_predicates, provenance_map) where:
+        - expanded_predicates: Set of fully expanded base predicates
+        - provenance_map: Dict mapping each predicate to list of LET names it was expanded from
     """
     if not let_definitions_dict:
-        return predicates
+        return predicates, {}
     
     expanded = set()
-    to_expand = set(predicates)
-    visited = set()  # Track predicates we've already processed
+    to_expand = [(pred, []) for pred in predicates]  # (predicate, let_chain)
+    visited = {}  # predicate -> let_chain (track what we've processed)
+    provenance = {}  # predicate -> list of LET names
     
     # Safety limit to prevent infinite loops
-    max_iterations = 100
+    max_iterations = 1000
     iteration = 0
     
     while to_expand and iteration < max_iterations:
         iteration += 1
-        current = to_expand.pop()
+        current, let_chain = to_expand.pop()
         
-        # Skip if already processed
+        # Skip if already processed with same or shorter chain
         if current in visited:
             continue
-        visited.add(current)
+        visited[current] = let_chain
         
         if current in let_definitions_dict:
             # It's a LET - add its constituents to expand queue
             let_def = let_definitions_dict[current]
-            to_expand.update(let_def['predicates'])
+            new_chain = let_chain + [current]
+            
+            for pred in let_def['predicates']:
+                to_expand.append((pred, new_chain))
             
             # Merge events if tracking them
             if events_dict is not None:
@@ -95,15 +101,16 @@ def _expand_predicates_recursively(predicates, let_definitions_dict, events_dict
         else:
             # Base predicate - add to result
             expanded.add(current)
+            if let_chain:
+                provenance[current] = let_chain
     
     if iteration >= max_iterations:
         print(f"WARNING: Maximum iteration limit reached during LET expansion!")
         print(f"  Starting predicates: {predicates}")
-        print(f"  Remaining to expand: {to_expand}")
+        print(f"  Remaining to expand: {len(to_expand)} items")
         print(f"  Already visited: {len(visited)} predicates")
-        print(f"  This should never happen with the visited set - possible bug!")
     
-    return expanded
+    return expanded, provenance
 
 
 def add_rule_edges(net, rules, let_definitions_dict=None):
@@ -129,14 +136,14 @@ def add_rule_edges(net, rules, let_definitions_dict=None):
         filter_events = rule.get('events', {}).copy()
         
         # Expand filter predicates recursively
-        expanded_filter = _expand_predicates_recursively(
+        expanded_filter, filter_provenance = _expand_predicates_recursively(
             rule['filter'], 
             let_definitions_dict, 
             filter_events
         )
         
         # Expand effect predicates recursively
-        expanded_effects = _expand_predicates_recursively(
+        expanded_effects, effects_provenance = _expand_predicates_recursively(
             rule['effects'], 
             let_definitions_dict
         )
@@ -145,7 +152,9 @@ def add_rule_edges(net, rules, let_definitions_dict=None):
             'id': rule['id'],
             'filter': expanded_filter,
             'effects': expanded_effects,
-            'events': filter_events
+            'events': filter_events,
+            'filter_provenance': filter_provenance,
+            'effects_provenance': effects_provenance
         })
     
     # Now do simple shared predicate analysis
@@ -189,16 +198,40 @@ def add_rule_edges(net, rules, let_definitions_dict=None):
                     monotonicity_type = "mixed"
                     stats['mixed'] += 1
                 
-                # Create edge title
+                # Create edge title with LET provenance
                 rule_from_num = rule_from['id'].replace('RULE_', '')
                 rule_to_num = rule_to['id'].replace('RULE_', '')
                 
                 pred_str = ", ".join(sorted(common_predicates))
+                
+                # Build detailed predicate info with LET provenance
+                predicate_details = []
+                for pred in sorted(common_predicates):
+                    polarity = events.get(pred, 'Mixed')
+                    
+                    # Get LET provenance for source (effects) and target (filter)
+                    from_lets = rule_from['effects_provenance'].get(pred, [])
+                    to_lets = rule_to['filter_provenance'].get(pred, [])
+                    
+                    detail_parts = [f"{pred} ({polarity})"]
+                    
+                    if from_lets or to_lets:
+                        provenance_parts = []
+                        if from_lets:
+                            from_chain = " → ".join(from_lets)
+                            provenance_parts.append(f"from: {from_chain}")
+                        if to_lets:
+                            to_chain = " → ".join(to_lets)
+                            provenance_parts.append(f"to: {to_chain}")
+                        detail_parts.append(f"[{'; '.join(provenance_parts)}]")
+                    
+                    predicate_details.append(" ".join(detail_parts))
+                
                 title = (
                     f"Rule {rule_from_num} → Rule {rule_to_num}\n"
                     f"Shared predicates: {pred_str}\n"
                     f"Monotonicity: {monotonicity_type.capitalize()}\n" +
-                    "\n".join(f"  • {detail}" for detail in sorted(monotonicity_details))
+                    "\n".join(f"  • {detail}" for detail in predicate_details)
                 )
                 
                 # Create edge
