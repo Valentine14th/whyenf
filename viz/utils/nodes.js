@@ -105,6 +105,40 @@ const GraphNodes = (function() {
         });
     }
     
+    function setupSCCCheckboxHandlers(sccCheckboxes, nodeCheckboxes, selectedNodes, updateCallback, highlightCallback) {
+        sccCheckboxes.forEach(function(sccCheckbox) {
+            sccCheckbox.addEventListener('change', function() {
+                // Get the SCC nodes from data attribute
+                const sccNodes = JSON.parse(this.getAttribute('data-scc-nodes'));
+                
+                if (this.checked) {
+                    // Select all nodes in the SCC
+                    sccNodes.forEach(nodeId => {
+                        selectedNodes.add(nodeId);
+                        // Also check the individual node checkbox if it exists
+                        const nodeCheckbox = Array.from(nodeCheckboxes).find(cb => cb.value === nodeId);
+                        if (nodeCheckbox) {
+                            nodeCheckbox.checked = true;
+                        }
+                    });
+                } else {
+                    // Deselect all nodes in the SCC
+                    sccNodes.forEach(nodeId => {
+                        selectedNodes.delete(nodeId);
+                        // Also uncheck the individual node checkbox if it exists
+                        const nodeCheckbox = Array.from(nodeCheckboxes).find(cb => cb.value === nodeId);
+                        if (nodeCheckbox) {
+                            nodeCheckbox.checked = false;
+                        }
+                    });
+                }
+                
+                updateCallback();
+                highlightCallback();
+            });
+        });
+    }
+    
     function setupItemClickHandlers(checkboxItems) {
         checkboxItems.forEach(function(item) {
             item.addEventListener('click', function(e) {
@@ -125,6 +159,7 @@ const GraphNodes = (function() {
         setupLeafSourceNodeHandlers,
         setupSearchHandlers,
         setupNodeCheckboxHandlers,
+        setupSCCCheckboxHandlers,
         setupItemClickHandlers
     };
 })();

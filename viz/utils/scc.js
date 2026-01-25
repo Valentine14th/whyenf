@@ -34,11 +34,13 @@ const GraphSCC = (function() {
 
             const clusterId = `scc-${i}`;
             sccClusters[i] = clusterId;
+            
             const clusterOptions = {
                 joinCondition: (nodeOptions) => scc.includes(nodeOptions.id) && !nodeOptions.hidden,
                 clusterNodeProperties: {
                     id: clusterId,
                     label: `SCC ${i + 1} (${visibleNodesInScc.length} nodes)`,
+                    title: `SCC ${i + 1}\nNodes\n: ${visibleNodesInScc.join(',\n')}`,
                     shape: 'box',
                     color: '#f0ad4e',
                     borderWidth: 2,

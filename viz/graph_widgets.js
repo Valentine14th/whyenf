@@ -28,7 +28,8 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Dropdown items
     var checkboxItems = dropdownList.querySelectorAll('.checkbox-item');
-    var checkboxes = dropdownList.querySelectorAll('input[type="checkbox"]');
+    var checkboxes = dropdownList.querySelectorAll('input[type="checkbox"]:not(.scc-checkbox)');
+    var sccCheckboxes = dropdownList.querySelectorAll('.scc-checkbox');
     
     // Partition controls
     var partitionList = document.getElementById('partition-list');
@@ -103,6 +104,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Checkbox handlers
     GraphNodes.setupNodeCheckboxHandlers(checkboxes, selectedNodes, updateSelectedDisplay, highlightNodes);
+    GraphNodes.setupSCCCheckboxHandlers(sccCheckboxes, checkboxes, selectedNodes, updateSelectedDisplay, highlightNodes);
     GraphPartitions.setupPartitionCheckboxHandlers(partitionCheckboxes, selectedPartitions, updateSelectedDisplay, highlightNodes);
     
     // Item click handlers

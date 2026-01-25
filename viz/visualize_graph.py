@@ -96,7 +96,7 @@ def create_graph(json_file, output_file, mode="original", filter_polarity=False)
     script_dir = os.path.dirname(os.path.abspath(__file__))
     template_file = os.path.join(script_dir, 'graph_template.html')
     
-    checkbox_items_html = build_checkbox_items_html(all_node_ids)
+    checkbox_items_html = build_checkbox_items_html(all_node_ids, sccs)
     edge_controls_html = build_edge_controls_html(mode, False)  # No LET edges in rule mode
     partition_controls_html = build_partition_controls_html(partitions, partition_labels)
     

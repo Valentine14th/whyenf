@@ -5,6 +5,7 @@ Utilities for generating HTML components and templates.
 import os
 import json
 from jinja2 import Template
+from .graph import format_scc_label
 
 
 def create_edge_control(control_id, label, color=None, checked=True):
@@ -40,9 +41,34 @@ def build_edge_controls_html(mode, has_definitions):
     return '\n                '.join(controls)
 
 
-def build_checkbox_items_html(node_ids):
-    """Build checkbox items HTML for node selection."""
+def build_checkbox_items_html(node_ids, sccs=None):
+    """Build checkbox items HTML for node selection.
+    
+    Args:
+        node_ids: List of individual node IDs
+        sccs: Optional list of SCCs (each SCC is a list of node IDs)
+    """
     items = []
+    
+    # Add SCC groups first if provided
+    if sccs:
+        for i, scc in enumerate(sccs):
+            display_name = format_scc_label(scc, strip_prefix=True)
+            
+            # Store the SCC nodes as a data attribute
+            scc_nodes_json = json.dumps(sorted(scc))
+            items.append(
+                f'<div class="checkbox-item">\n'
+                f'    <input type="checkbox" class="scc-checkbox" id="scc_{i}" data-scc-nodes=\'{scc_nodes_json}\' />\n'
+                f'    <label for="scc_{i}" style="font-size: 12px; font-weight: 600; color: #f0ad4e;">{display_name}</label>\n'
+                f'</div>'
+            )
+        
+        # Add separator
+        if items:
+            items.append('<div style="border-top: 1px solid #ddd; margin: 8px 0;"></div>')
+    
+    # Add individual node checkboxes
     for node_id in node_ids:
         # Format display name from node ID (matches GraphNodes.getNodeDisplayName in frontend)
         if node_id.startswith('RULE_'):

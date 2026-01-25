@@ -334,6 +334,33 @@ def extract_node_name(node_id):
     return node_id[4:] if node_id.startswith('LET_') else node_id
 
 
+def format_scc_label(scc_nodes, strip_prefix=False):
+    """Format SCC label showing nodes.
+    
+    Args:
+        scc_nodes: List of node IDs in the SCC
+        strip_prefix: If True, remove RULE_ prefix from node names
+    
+    Returns:
+        Formatted string like "SCC [RULE_5, RULE_8, RULE_12]" or 
+        "SCC [RULE_5, RULE_8, RULE_12, ... 7 nodes]"
+    """
+    sorted_nodes = sorted(scc_nodes)
+    
+    # Strip prefix if requested
+    if strip_prefix:
+        display_nodes = [n.replace('RULE_', '') for n in sorted_nodes]
+    else:
+        display_nodes = sorted_nodes
+    
+    if len(sorted_nodes) <= 3:
+        node_list = ", ".join(display_nodes)
+        return f"SCC [{node_list}]"
+    else:
+        node_preview = ", ".join(display_nodes[:3])
+        return f"SCC [{node_preview}, ... {len(sorted_nodes)} nodes]"
+
+
 def calculate_edge_properties(count, base_width=1.5, base_opacity=0.5, 
                              width_increment=0.5, opacity_increment=0.1, 
                              max_width=6, max_opacity=0.95):
@@ -696,7 +723,11 @@ def compute_backward_partitions(net):
             partition_nodes.update(sccs_all[scc_idx])
         
         partitions[leaf_scc_idx] = partition_nodes
-        partition_labels[leaf_scc_idx] = extract_node_name(sorted(sccs_all[leaf_scc_idx])[0])
+        anchor_scc_nodes = sccs_all[leaf_scc_idx]
+        if len(anchor_scc_nodes) <= 1:
+            partition_labels[leaf_scc_idx] = extract_node_name(sorted(anchor_scc_nodes)[0])
+        else:
+            partition_labels[leaf_scc_idx] = format_scc_label(anchor_scc_nodes)
     
     # Merge partitions with identical node sets
     merged_partitions, merged_labels, node_set_to_anchors = _merge_partitions(
