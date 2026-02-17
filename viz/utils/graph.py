@@ -7,20 +7,38 @@ import networkx as nx
 from .config import NODE_COLORS, EDGE_COLORS
 
 
+def format_rule_label(rule_label):
+    """Format a rule label for display by extracting filename and location.
+    
+    Args:
+        rule_label: Full label like "example/GDPR/gdpr.lex:2520:1-2526:54"
+    
+    Returns:
+        Shortened label like "gdpr.lex:2520:1-2526:54" (filename with full location)
+    """
+    if ':' in rule_label:
+        # Split on the first colon to separate path from location info
+        parts = rule_label.split('/', )
+        file_path_with_location = parts[-1] if parts else rule_label
+        return file_path_with_location
+    return rule_label
+
+
 def add_rule_nodes(net, rules):
     """Add rule nodes to the network."""
     for rule in rules:
         rule_id = rule['id']
         rule_type = rule.get('type', 'Unknown')
+        rule_label = rule.get('label', rule_id)
         
-        # Create label with rule type
+        # Extract a short display name from the label
+        # Format: "example/GDPR/gdpr.lex:2520:1-2526:54" -> "gdpr.lex:2520:1-2526:54"
+        display_label = format_rule_label(rule_label)
+        
+        # Create hover text with details including full label
         effects_list = sorted(rule['effects'])
-        rule_num = rule['id'].replace('RULE_', '')
-        label = f"Rule {rule_num}"
-        
-        # Create hover text with details
         hover_text = (
-            f"Rule {rule_num}\n"
+            f"Label: {rule_label}\n"
             f"Type: {rule_type}\n"
             f"Filter ({len(rule['filter'])} predicates):\n" +
             "\n".join(f"  • {p}" for p in sorted(rule['filter'])) +
@@ -33,7 +51,7 @@ def add_rule_nodes(net, rules):
         
         net.add_node(
             rule_id,
-            label=label,
+            label=display_label,
             color=color,
             shape="box",
             size=35,
@@ -150,6 +168,7 @@ def add_rule_edges(net, rules, let_definitions_dict=None):
         
         expanded_rules.append({
             'id': rule['id'],
+            'label': rule.get('label', rule['id']),  # Preserve the label
             'filter': expanded_filter,
             'effects': expanded_effects,
             'events': filter_events,
@@ -199,8 +218,9 @@ def add_rule_edges(net, rules, let_definitions_dict=None):
                     stats['mixed'] += 1
                 
                 # Create edge title with LET provenance
-                rule_from_num = rule_from['id'].replace('RULE_', '')
-                rule_to_num = rule_to['id'].replace('RULE_', '')
+                # Use original labels instead of RULE_X
+                rule_from_label = rule_from.get('label', rule_from['id'])
+                rule_to_label = rule_to.get('label', rule_to['id'])
                 
                 pred_str = ", ".join(sorted(common_predicates))
                 
@@ -228,7 +248,7 @@ def add_rule_edges(net, rules, let_definitions_dict=None):
                     predicate_details.append(" ".join(detail_parts))
                 
                 title = (
-                    f"Rule {rule_from_num} → Rule {rule_to_num}\n"
+                    f"{rule_from_label} → {rule_to_label}\n"
                     f"Shared predicates: {pred_str}\n"
                     f"Monotonicity: {monotonicity_type.capitalize()}\n" +
                     "\n".join(f"  • {detail}" for detail in predicate_details)

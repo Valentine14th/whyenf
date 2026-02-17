@@ -114,6 +114,7 @@ def extract_top_level_rules(instrs):
     - filter: set of predicates in the filter
     - effects: set of predicates in the effects
     - events: dict mapping predicate name to monotonicity ("Monotonic", "Antimonotonic", etc.)
+    - label: original label from the JSON (e.g., "example/GDPR/gdpr.lex:2520:1-2526:54")
     """
     if not instrs or len(instrs) == 0:
         return []
@@ -132,11 +133,12 @@ def extract_top_level_rules(instrs):
         if effect_item.get("constructor") == "NInstructions":
             instructions = effect_item.get("instructions", [])
             
-            # Get the first instruction's recipe
+            # Get the first instruction's recipe and label
             if instructions and "recipe" in instructions[0]:
                 recipe = instructions[0]["recipe"]
                 recipe_by = recipe.get("by", {})
                 rule_type = recipe.get("constructor", "Unknown")
+                label = instructions[0].get("label", f"RULE_{idx}")
                 
                 # Extract events with monotonicity information
                 events_list = recipe_by.get("events", [])
@@ -147,7 +149,8 @@ def extract_top_level_rules(instrs):
                     "type": rule_type,
                     "filter": extract_predicates(recipe_by.get("filter", {})),
                     "effects": extract_predicates(recipe_by.get("effects", {})),
-                    "events": events_dict
+                    "events": events_dict,
+                    "label": label
                 }
                 rules.append(rule)
     
