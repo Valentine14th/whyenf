@@ -162,7 +162,7 @@ module Memo = struct
         | None, _, _
         | _, None, _
         | _, _, None -> None
-        | Some _, Some mf_events, _ when not (Set.are_disjoint mf_events memo.ex_events) ->
+        | Some _, Some mf_events, _ when Set.exists ~f:(Map.mem mf_events) memo.ex_events ->
           None
         | Some _, _, Some mf_obligations when not (Set.are_disjoint mf_obligations memo.ex_obligations) ->
           None
@@ -207,7 +207,11 @@ let meval (ts: timestamp) tp (db: Db.t) ~pol (fobligs: FObligations.t) (m: (stri
     (*debug (Printf.sprintf "memo = %s" (Memo.to_string memo));*)
     match Memo.find memo mformula (Polarity.value pol) with
     | Some (expls, aexpl, mf) ->
-      (memo, (expls, aexpl, { mf with lbls = mformula.lbls; projs = mformula.projs }))
+      debug (Printf.sprintf "meval_rec (%s, %d, %s) = %s"
+               (Time.to_string ts) tp (IFormula.value_to_string mformula) (Expl.to_string aexpl));
+      (memo, (expls, aexpl, { mf with lbls = mformula.lbls;
+                                      projs = mformula.projs;
+                                      unprojs = mformula.unprojs }))
     | None -> 
        let memo, (expls, aexpl, mf) =
          match mformula.mf with
@@ -249,6 +253,12 @@ let meval (ts: timestamp) tp (db: Db.t) ~pol (fobligs: FObligations.t) (m: (stri
                  memo, (one_ts tp ts expl, expl, MPredicate (r, trms))
              | Some (_, mf) ->
                let memo, (expls, aexpl, mf') = meval_rec ts tp db fobligs ~pol memo mf in
+               (*print_endline (IFormula.to_string mf);*)
+               debug (Printf.sprintf "Reordering with trms=%s lbls=%s"
+                        (ITerm.list_to_string trms)
+                        (Lbl.to_string_list (Array.to_list mf.lbls)));
+               let expls = update_let_predicate trms mf.lbls expls in
+               let aexpl = approximate_let_predicate trms mf.lbls aexpl in
                memo, (expls, aexpl, MPredicate (r, trms))
            end
          | MAgg (s, op, op_fun, x, y, mf) ->
@@ -268,30 +278,30 @@ let meval (ts: timestamp) tp (db: Db.t) ~pol (fobligs: FObligations.t) (m: (stri
             let expls = update_neg expls in
             let aexpl = approximate_neg aexpl in
             memo, (expls, aexpl, MNeg mf')
-         | MAnd (s, mfs, bufn) -> 
+         | MAnd (s, b, mfs, bufn) -> 
             let memo, data = List.fold_map ~init:memo ~f:(meval_rec ts tp db ~pol fobligs) mfs in
             let expls_list, aexpl_list, mfs' = List.unzip3 data in
             let (f_expls, bufn) = update_and (List.map mfs ~f:p) expls_list bufn in
             let aexpl = approximate_and (List.map mfs ~f:p) aexpl_list in
-            memo, (f_expls, aexpl, MAnd (s, mfs', bufn))
-         | MOr (s, mfs, bufn) ->
+            memo, (f_expls, aexpl, MAnd (s, b, mfs', bufn))
+         | MOr (s, b, mfs, bufn) ->
             let memo, data = List.fold_map ~init:memo ~f:(meval_rec ts tp db ~pol fobligs) mfs in
             let expls_list, aexpl_list, mfs' = List.unzip3 data in
             let (f_expls, bufn) = update_or (List.map mfs ~f:p) expls_list bufn in
             let aexpl = approximate_or (List.map mfs ~f:p) aexpl_list in
-            memo, (f_expls, aexpl, MOr (s, mfs', bufn))
-         | MImp (s, mf1, mf2, buf2) ->
+            memo, (f_expls, aexpl, MOr (s, b, mfs', bufn))
+         | MImp (s, b, mf1, mf2, buf2) ->
             let memo, (expls1, aexpl1, mf1') = meval_rec ts tp db ~pol:(pol >>| Polarity.neg) fobligs memo mf1 in
             let memo, (expls2, aexpl2, mf2') = meval_rec ts tp db ~pol fobligs memo mf2 in
             let (f_expls, buf2) = update_imp (p mf1) (p mf2) expls1 expls2 buf2 in
             let aexpl = approximate_imp (p mf1) (p mf2) aexpl1 aexpl2 in
-            memo, (f_expls, aexpl, MImp (s, mf1', mf2', buf2))
-         | MExists (x, tc, b, mf) ->
+            memo, (f_expls, aexpl, MImp (s, b, mf1', mf2', buf2))
+         | MExists (x, tc, b, b', mf) ->
             let memo, (expls, aexpl, mf') = meval_rec ts tp db ~pol fobligs memo mf in
-            memo, (expls, aexpl, MExists (x, tc, b, mf'))
-         | MForall (x, tc, b, mf) ->
+            memo, (expls, aexpl, MExists (x, tc, b, b', mf'))
+         | MForall (x, tc, b, b', mf) ->
             let memo, (expls, aexpl, mf') = meval_rec ts tp db ~pol fobligs memo mf in
-            memo, (expls, aexpl, MForall (x, tc, b, mf'))
+            memo, (expls, aexpl, MForall (x, tc, b, b', mf'))
          | MPrev (i, mf, aux) -> 
             let memo, (expls, _, mf') = meval_rec ts tp db ~pol fobligs memo mf in
             let aux = Prev.add expls aux in 
@@ -380,6 +390,7 @@ let meval (ts: timestamp) tp (db: Db.t) ~pol (fobligs: FObligations.t) (m: (stri
        let memo = if tp = outer_tp then Memo.memoize memo mformula (Polarity.value pol) (expls, aexpl, mf) else memo in
        debug (Printf.sprintf "meval_rec (%s, %d, %s) = %s"
                 (Time.to_string ts) tp (IFormula.value_to_string mformula) (Expl.to_string aexpl));
+       if !Global.debug then assert (Expl.well_formed aexpl);
        memo, (expls, aexpl, mf)
   in meval_rec ts tp db ~pol fobligs memo mformula
 

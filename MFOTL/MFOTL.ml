@@ -235,6 +235,43 @@ module Make
     | And (_, fs)
       | Or (_, fs) -> Set.union_list (module String) (List.map fs ~f:(predicates ~lets))
 
+  let rec typed_predicates ?(lets=Map.empty (module String)) f =
+    let merge_maps =
+      Map.merge ~f:(fun ~key -> function
+          | `Both (t, u) -> Some (Enftype.join t u)
+          | `Left t -> Some t
+          | `Right t -> Some t) in
+    match f.form with
+    | TT
+      | FF
+      | EqConst _ -> Map.empty (module String)
+    | Predicate (r, trms) -> Option.value ~default:(Map.singleton (module String) r f.info.enftype) (Map.find lets r)
+    | Let (r, _, _, f, g) -> typed_predicates ~lets:(Map.update lets r ~f:(fun _ -> typed_predicates ~lets f)) g
+    | Predicate' (_, _, f)
+      | Let' (_, _, _, _, f)
+      | Neg f 
+      | Exists (_, f)
+      | Forall (_, f)
+      | Prev (_, f)
+      | Next (_, f)
+      | Once (_, f)
+      | Eventually (_, f)
+      | Historically (_, f)
+      | Always(_, f) 
+      | Agg (_, _, _, _, f)
+      | Top (_, _, _, _, f)
+      | Type (f, _)
+      | Label (_, f) -> typed_predicates ~lets f
+    | Imp (_, f, g)
+      | Since (_, _, f, g)
+      | Until (_, _, f, g) -> merge_maps (typed_predicates ~lets f) (typed_predicates ~lets g)
+    | And (_, fs)
+      | Or (_, fs) ->
+        List.fold_left (List.map ~f:(typed_predicates ~lets) fs)
+          ~init:(Map.empty (module String)) ~f:merge_maps
+          
+  (*Set.union_list (module String) (List.map fs ~f:(predicates ~lets))*)
+
   let rec deg f = match f.form with
     | TT
       | FF
@@ -1080,9 +1117,12 @@ module Make
                        let q f = List.fold_left trms' ~init:f ~f:e in
                        ((fun f -> return (Predicate' (r, Term.substs v trms, q f))) >>= (aux f)) i v)*)
         | Let (r, enftype, vars, f, g) ->
-           (fun i v -> let (i, v'), vars = List.fold_map vars ~init:(i, v) ~f:(fun a (v, x) -> let a, v = fresh a v in (a, (v, x))) in
+          (*(fun i v -> let (i, v'), vars = List.fold_map vars ~init:(i, v) ~f:(fun a (v, x) -> let a, v = fresh a v in (a, (v, x))) in
                        let f, (i, _) = aux f i v' in
-                       ((fun g -> return (Let (r, enftype, vars, f, g))) >>= (aux g)) i v)
+                       ((fun g -> return (Let (r, enftype, vars, f, g))) >>= (aux g)) i v)*)
+          (fun i v -> let (i, v'), vars = List.fold_map vars ~init:(i, v) ~f:(fun a (v, x) -> let a, v = fresh a v in (a, (v, x))) in
+                       let f, (i, _) = aux f i v' in
+                       ((fun f -> (fun g -> return (Let (r, enftype, vars, f, g))) >>= (aux g)) >>= (aux f)) i v)
         | Let' (r, enftype, vars, f, g) ->
            (fun i v -> let (i, v'), vars = List.fold_map vars ~init:(i, v) ~f:(fun a (v, x) -> let a, v = fresh a v in (a, (v, x))) in
                        let f, (i, _) = aux f i v' in
@@ -1601,8 +1641,8 @@ module Make
        combine_str_info_maps f_preds g_preds
 
   let rec non_monotone_predicates ?(let_ctxt_mon: 'str_str_info_map=Map.empty (module String)) ?(let_ctxt_anti_mon: 'str_str_info_map=Map.empty (module String)) ?(init_mon: 'str_info_map=Map.empty (module String)) ?(init_anti_mon: 'str_info_map= Map.empty (module String)) f : ('str_info_map * 'str_info_map) =
-    (** computes the predicates that appear none-(anti)-monotonely in a formula f
-        along with information such as a which occurrence of a predicate is none-(anti)-monotone *)
+    (** computes the predicates that appear non-(anti)-monotonically in a formula f
+        along with information such as a which occurrence of a predicate is non-(anti)-monotone *)
     (* Because f.info is 'abstract' one cannot directly access lexing positional information
        The position information will later be extracted and combined *)
     let combine_str_info_maps m1 m2 =
@@ -2774,6 +2814,12 @@ module Make
         | NSinceL of Interval.t * formula
         | NSinceR of Interval.t * formula [@@deriving equal]
 
+      type monotonicity =
+        | NMonotonic
+        | NAntimonotonic
+        | NIrrelevant
+        | NNeither [@@deriving equal]
+
       type effect =
         | NInstructions of instruction list
         | NEvent of formula (* only predicates *) [@@deriving equal]
@@ -2781,6 +2827,7 @@ module Make
       and by = {
         filter:  formula;
         effects: effect list;
+        events: (string * monotonicity) list;
       } [@@deriving equal]
 
       and recipe =
@@ -2803,6 +2850,7 @@ module Make
         enftype: Enftype.t;
         instrs_opt: instruction list option;
         formula: typed_t;
+        events: (string * monotonicity * Enftype.t) list;
       } [@@deriving equal]
 
       type t = {
@@ -2833,6 +2881,12 @@ module Make
         
       let merge instr instr' =
         { instr with recipe = merge_recipe instr.recipe instr'.recipe }
+
+      let monotonicity_to_string = function
+        | NMonotonic -> "Monotonic"
+        | NAntimonotonic -> "Antimonotonic"
+        | NIrrelevant -> "Irrelevant"
+        | NNeither -> "Neither"
         
       let modality_to_string nm s r_s_opt =
         match nm with
@@ -2905,6 +2959,22 @@ module Make
         ^ "\n" ^
         String.concat ~sep:" ∧\n" (List.map ~f:instruction_to_string nf.instrs)
 
+      let events_to_json event_list =
+        Printf.sprintf "[%s]"
+          (Etc.string_list_to_string (List.map ~f:(fun (e, m) ->
+               Printf.sprintf "{ \"name\": \"%s\", \"polarity\": \"%s\" }"
+                 e (monotonicity_to_string m)) event_list))
+
+      let typed_events_to_json event_list =
+        Printf.sprintf "[%s]"
+          (Etc.string_list_to_string (List.map ~f:(fun (e, m, t) ->
+               Printf.sprintf "{ \"name\": \"%s\", \"polarity\": \"%s\", \"effect\": %s }"
+                 e (monotonicity_to_string m)
+                 (match Enftype.is_causable t, Enftype.is_suppressable t with
+                  | true, false -> "\"Cau\""
+                  | false, true -> "\"Sup\""
+                  | false, false -> "null")) event_list))
+
       let rec modality_to_json = function
         | NNow -> "{ \"constructor\": \"NNow\" }"
         | NNext i -> 
@@ -2940,9 +3010,10 @@ module Make
           Printf.sprintf "{ \"constructor\": \"NEvent\", \"formula\": %s }" (to_json f)
 
       and by_to_json by =
-        Printf.sprintf "{ \"filter\": %s, \"effects\": [%s] }"
+        Printf.sprintf "{ \"filter\": %s, \"effects\": [%s], \"events\": %s }"
           (to_json by.filter)
           (String.concat ~sep:", " (List.map ~f:effect_to_json by.effects))
+          (events_to_json by.events)
 
       and recipe_to_json = function
         | CauByCau by -> 
@@ -2970,7 +3041,7 @@ module Make
            | Some lbl -> Printf.sprintf "\"%s\"" lbl)
 
       and let_to_json let_ =
-        Printf.sprintf "{ \"e\": \"%s\", \"vars\": [%s], \"enftype\": \"%s\", \"instrs_opt\": %s, \"formula\": %s }"
+        Printf.sprintf "{ \"e\": \"%s\", \"vars\": [%s], \"enftype\": \"%s\", \"instrs_opt\": %s, \"formula\": %s, \"events\": %s }"
           let_.e
           (String.concat ~sep:", " (List.map let_.vars ~f:(fun v -> Printf.sprintf "\"%s\"" (Var.to_string v))))
           (Enftype.to_string let_.enftype)
@@ -2978,11 +3049,36 @@ module Make
            | None -> "null"
            | Some instrs -> Printf.sprintf "[%s]" (String.concat ~sep:", " (List.map ~f:instruction_to_json instrs)))
           (to_json let_.formula)
+          (typed_events_to_json let_.events)
 
       let to_json nf =
         Printf.sprintf "{ \"lets\": [%s], \"instrs\": [%s] }"
           (String.concat ~sep:", " (List.map ~f:let_to_json nf.lets))
           (String.concat ~sep:", " (List.map ~f:instruction_to_json nf.instrs))
+
+      let typed_monotonicity_list f =
+        let typed_events = typed_predicates f in
+        let events = Set.of_list (module String) (Map.keys typed_events) in
+        let non_monotone_map, non_antimonotone_map = non_monotone_predicates f in
+        let non_monotone = Set.of_list (module String) (Map.keys non_monotone_map) in
+        let non_antimonotone = Set.of_list (module String) (Map.keys non_antimonotone_map) in
+        let monotone = Set.diff events non_monotone in
+        let antimonotone = Set.diff events non_antimonotone in
+        let irrelevant = Set.inter monotone antimonotone in
+        let monotone = Set.diff monotone irrelevant in
+        let antimonotone = Set.diff antimonotone irrelevant in
+        let neither = Set.diff events (Set.union_list (module String) [monotone; antimonotone; irrelevant]) in
+        let find = Map.find_exn typed_events in
+        List.map ~f:(fun e -> (e, NIrrelevant, find e)) (Set.to_list irrelevant)
+        @ List.map ~f:(fun e -> (e, NMonotonic, find e)) (Set.to_list monotone)
+        @ List.map ~f:(fun e -> (e, NAntimonotonic, find e)) (Set.to_list antimonotone)
+        @ List.map ~f:(fun e -> (e, NNeither, find e)) (Set.to_list neither)
+
+      let monotonicity_list f =
+        List.map ~f:(fun (a, b, c) -> (a, b)) (typed_monotonicity_list f)
+
+      let set_events by =
+        { by with events = monotonicity_list by.filter }
 
       let neg_recipe = function
         | CauByCau by_cau -> SupByCau by_cau
@@ -3013,7 +3109,8 @@ module Make
           let lets_f, formula = split_lets f in
           let lets_g, g = split_lets g in
           let vars = List.map ~f:fst vars in
-          lets_f @ { e; enftype; vars; formula; instrs_opt = None } :: lets_g, g
+          lets_f @ { e; enftype; vars; formula; instrs_opt = None;
+                     events = typed_monotonicity_list formula } :: lets_g, g
         | Let' (e, typ_opt, vars, f, g) -> split_lets g
         | Agg (s, op, x, y, f) -> (fun f -> Agg (s, op, x, y, f)) >>| f
         | Top (s, op, x, y, f) -> (fun f -> Top (s, op, x, y, f)) >>| f
@@ -3040,15 +3137,15 @@ module Make
         let init = init ~label in
         let make_dummy f = make f TypedInfo.dummy in
         let and_filter filter f = ac_simplify (make_dummy (And (N, [filter; f]))) in
-        let and_recipe filter = function
+        let and_recipe fi = function
           | CauByCau by_cau ->
-            CauByCau { by_cau with filter = and_filter filter by_cau.filter }
+            CauByCau (set_events { by_cau with filter = and_filter fi by_cau.filter })
           | CauBySup by_sup ->
-            CauBySup { by_sup with filter = and_filter filter by_sup.filter }
+            CauBySup (set_events { by_sup with filter = and_filter fi by_sup.filter })
           | SupByCau by_cau ->
-            SupByCau { by_cau with filter = and_filter filter by_cau.filter }
+            SupByCau (set_events { by_cau with filter = and_filter fi by_cau.filter })
           | SupBySup by_sup ->
-            SupBySup { by_sup with filter = and_filter filter by_sup.filter } in
+            SupBySup (set_events { by_sup with filter = and_filter fi by_sup.filter }) in
         let rec merge_all = function
           | [] -> []
           | h::t ->
@@ -3069,7 +3166,8 @@ module Make
                       vars = [];
                       recipe = CauByCau {
                           filter = make_dummy TT;
-                          effects = []
+                          effects = [];
+                          events = [];
                         };
                       r_recipe_opt = None;
                       label;
@@ -3085,7 +3183,8 @@ module Make
                       vars = [];
                       recipe = CauByCau {
                           filter = make_dummy TT;
-                          effects = [NEvent formula]
+                          effects = [NEvent formula];
+                          events = [];
                         };
                       r_recipe_opt = None;
                       label;
@@ -3102,7 +3201,8 @@ module Make
               let f_lets = Option.value_map ~default:[] ~f:(fun nf -> nf.lets) nf_opt in
               let instrs_opt = Option.map ~f:(fun nf -> nf.instrs) nf_opt in
               let new_let =
-                { e; vars = List.map ~f:fst vars; enftype; formula = f; instrs_opt } in
+                { e; vars = List.map ~f:fst vars; enftype; formula = f; instrs_opt;
+                  events = typed_monotonicity_list f } in
               {
                 lets = new_let :: ng.lets;
                 instrs = ng.instrs
@@ -3140,7 +3240,8 @@ module Make
                           vars = [];
                           recipe = CauByCau {
                                 filter;
-                                effects = [NInstructions [instr]]
+                                effects = [NInstructions [instr]];
+                                events = monotonicity_list filter;
                               }; 
                           r_recipe_opt = None;
                           label;
@@ -3161,7 +3262,8 @@ module Make
                             vars = [];
                             recipe = SupBySup {
                                 filter;
-                                effects = [NInstructions [instr]]
+                                effects = [NInstructions [instr]];
+                                events = monotonicity_list filter;
                               }; 
                             r_recipe_opt = None;
                             label;
@@ -3170,18 +3272,19 @@ module Make
               }
             | Imp (R, f, g) ->
               let ng = init g in
-              let lets, f = split_lets f in
+              let lets, filter = split_lets f in
               {
                 lets = lets @ ng.lets;
                 instrs = List.map ng.instrs
                     ~f:(fun instr -> match instr.modality with
-                        | NNow -> { instr with recipe = and_recipe f instr.recipe }
+                        | NNow -> { instr with recipe = and_recipe filter instr.recipe }
                         | _ -> {
                             modality = NNow;
                             vars = [];
                             recipe = CauByCau {
-                                filter = f;
-                                effects = [NInstructions [instr]]
+                                filter;
+                                effects = [NInstructions [instr]];
+                                events = monotonicity_list filter;
                               }; 
                             r_recipe_opt = None;
                             label;
@@ -3209,7 +3312,8 @@ module Make
                     vars = [];
                     recipe = CauByCau {
                         filter = make_dummy TT;
-                        effects = [NInstructions nf.instrs]
+                        effects = [NInstructions nf.instrs];
+                        events = [];
                       };
                     r_recipe_opt = None;
                     label;
@@ -3227,7 +3331,8 @@ module Make
                     vars = [];
                     recipe = CauByCau {
                         filter = make_dummy TT;
-                        effects = [NInstructions ng.instrs]
+                        effects = [NInstructions ng.instrs];
+                        events = [];
                       };
                     r_recipe_opt = None;
                     label;
@@ -3244,7 +3349,8 @@ module Make
                     vars = [];
                     recipe = CauByCau {
                         filter = make_dummy TT;
-                        effects = [NInstructions nf.instrs]
+                        effects = [NInstructions nf.instrs];
+                        events = [];
                       };
                     r_recipe_opt = None;
                     label;
@@ -3261,7 +3367,8 @@ module Make
                     vars = [];
                     recipe = CauByCau {
                         filter = make_dummy TT;
-                        effects = [NInstructions nf.instrs]
+                        effects = [NInstructions nf.instrs];
+                        events = [];
                       };
                     r_recipe_opt = None;
                     label;
@@ -3278,11 +3385,13 @@ module Make
                     vars = [];
                     recipe = CauByCau {
                         filter = make_dummy TT;
-                        effects = [NInstructions nf.instrs]
+                        effects = [NInstructions nf.instrs];
+                        events = [];
                       };
                     r_recipe_opt = Some (CauByCau {
                         filter = make_dummy TT;
-                        effects = [NInstructions ng.instrs]
+                        effects = [NInstructions ng.instrs];
+                        events = [];
                       });
                     label;
                   }
@@ -3299,7 +3408,8 @@ module Make
                     vars = [];
                     recipe = CauByCau {
                         filter = make_dummy TT;
-                        effects = [NInstructions ng.instrs]
+                        effects = [NInstructions ng.instrs];
+                        events = [];
                       };
                     r_recipe_opt = None;
                     label;
@@ -3320,7 +3430,8 @@ module Make
                     vars = [];
                     recipe = SupBySup {
                         filter = make_dummy TT;
-                        effects = []
+                        effects = [];
+                        events = [];
                       };
                     r_recipe_opt = None;
                     label;
@@ -3336,7 +3447,8 @@ module Make
                     vars = [];
                     recipe = SupBySup {
                         filter = make_dummy TT;
-                        effects = [NEvent formula]
+                        effects = [NEvent formula];
+                        events = [];
                       };
                     r_recipe_opt = None;
                     label;
@@ -3351,7 +3463,8 @@ module Make
               let f_lets = Option.value_map ~default:[] ~f:(fun nf -> nf.lets) nf_opt in
               let instrs_opt = Option.map ~f:(fun nf -> nf.instrs) nf_opt in
               let new_let =
-                { e; vars = List.map ~f:fst vars; enftype; formula = f; instrs_opt } in
+                { e; vars = List.map ~f:fst vars; enftype; formula = f; instrs_opt;
+                  events = typed_monotonicity_list f } in
               {
                 lets = new_let :: ng.lets;
                 instrs = ng.instrs
@@ -3377,7 +3490,8 @@ module Make
                             vars = [];
                             recipe = SupBySup {
                                 filter;
-                                effects = [NInstructions [instr]]
+                                effects = [NInstructions [instr]];
+                                events = monotonicity_list filter;
                               }; 
                             r_recipe_opt = None;
                             label;
@@ -3430,7 +3544,8 @@ module Make
                     vars = [];
                     recipe = SupBySup {
                         filter = make_dummy TT;
-                        effects = [NInstructions nf.instrs]
+                        effects = [NInstructions nf.instrs];
+                        events = [];
                       };
                     r_recipe_opt = None;
                     label;
@@ -3448,7 +3563,8 @@ module Make
                     vars = [];
                     recipe = SupBySup {
                         filter = make_dummy TT;
-                        effects = [NInstructions nf.instrs]
+                        effects = [NInstructions nf.instrs];
+                        events = [];
                       };
                     r_recipe_opt = None;
                     label;
@@ -3465,7 +3581,8 @@ module Make
                     vars = [];
                     recipe = SupBySup {
                         filter = make_dummy TT;
-                        effects = [NInstructions nf.instrs]
+                        effects = [NInstructions nf.instrs];
+                        events = [];
                       };
                     r_recipe_opt = None;
                     label;
@@ -3482,7 +3599,8 @@ module Make
                     vars = [];
                     recipe = SupBySup {
                         filter = make_dummy TT;
-                        effects = [NInstructions nf.instrs]
+                        effects = [NInstructions nf.instrs];
+                        events = [];
                       };
                     r_recipe_opt = None;
                     label;
@@ -3500,7 +3618,8 @@ module Make
                     vars = [];
                     recipe = SupBySup {
                         filter = make_dummy TT;
-                        effects = [NInstructions nf.instrs]
+                        effects = [NInstructions nf.instrs];
+                        events = [];
                       };
                     r_recipe_opt = None;
                     label;
@@ -3518,7 +3637,8 @@ module Make
                     vars = [];
                     recipe = SupBySup {
                         filter = make_dummy TT;
-                        effects = [NInstructions ng.instrs]
+                        effects = [NInstructions ng.instrs];
+                        events = [];
                       };
                     r_recipe_opt = None;
                     label;
