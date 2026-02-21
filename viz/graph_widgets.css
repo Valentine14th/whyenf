@@ -237,16 +237,6 @@
 #edge-controls .edge-indicator.let {
     background: #bdc3c7;
 }
-#edge-controls .edge-indicator.implication {
-    background: #9b59b6;
-    background-image: repeating-linear-gradient(
-        90deg,
-        #9b59b6,
-        #9b59b6 5px,
-        transparent 5px,
-        transparent 10px
-    );
-}
 #search-input {
     width: 100%;
     padding: 8px;

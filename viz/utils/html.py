@@ -8,35 +8,29 @@ from jinja2 import Template
 from .graph import format_scc_label
 
 
-def create_edge_control(control_id, label, color=None, checked=True):
+def create_edge_control(control_id, label, color, checked=True):
     """Create a single edge control HTML element."""
     checked_attr = ' checked' if checked else ''
-    indicator_style = f' style="background: {color};"' if color else ' class="implication"'
     return (
         f'<label style="font-size: 12px;"><input type="checkbox" id="{control_id}"{checked_attr} />'
-        f'<span class="edge-label"><span class="edge-indicator"{indicator_style}>'
+        f'<span class="edge-label"><span class="edge-indicator" style="background: {color};">'
         f'</span>{label}</span></label>'
     )
 
 
-def build_edge_controls_html(mode, has_definitions):
-    """Build edge controls HTML based on mode and available edge types."""
+def build_edge_controls_html(has_definitions):
+    """Build edge controls HTML for available edge types."""
     controls = []
     
     # LET/Definition edges
-    if mode == "original" or (mode == "normal" and has_definitions):
+    if has_definitions:
         controls.append(create_edge_control("show-let-edges", "Definition Edges", "#bdc3c7"))
     
-    # Implication edges (not in normal mode)
-    if mode != "normal":
-        controls.append(create_edge_control("show-implication-edges", "Implication Edges"))
-    
-    # Causality edges (normal mode only) - monotonicity-based filtering
-    if mode == "normal":
-        controls.append('<div style="font-size: 11px; color: #555; margin-top: 10px; margin-bottom: 5px; font-weight: 600;">Filter by Monotonicity:</div>')
-        controls.append(create_edge_control("show-monotonic-edges", "Monotonic Edges", "#27ae60"))
-        controls.append(create_edge_control("show-antimonotonic-edges", "Antimonotonic Edges", "#e67e22"))
-        controls.append(create_edge_control("show-neither-edges", "Neither Monotonicity Edges", "#9b59b6"))
+    # Monotonicity-based filtering
+    controls.append('<div style="font-size: 11px; color: #555; margin-top: 10px; margin-bottom: 5px; font-weight: 600;">Filter by Monotonicity:</div>')
+    controls.append(create_edge_control("show-monotonic-edges", "Monotonic Edges", "#27ae60"))
+    controls.append(create_edge_control("show-antimonotonic-edges", "Antimonotonic Edges", "#e67e22"))
+    controls.append(create_edge_control("show-neither-edges", "Neither Monotonicity Edges", "#9b59b6"))
     
     return '\n                '.join(controls)
 

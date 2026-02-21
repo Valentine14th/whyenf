@@ -842,7 +842,7 @@ def _compute_shared_predicates(edges):
 
 def print_graph_statistics(definitions, predicate_only_names, edge_count, 
                           implications, implication_edge_count, rules=None, 
-                          causality_edge_count=0, mode="original"):
+                          causality_edge_count=0):
     """Print comprehensive statistics about the graph."""
     total_nodes = len(predicate_only_names) + len(definitions)
     print(f"\nGraph Statistics:")
@@ -851,15 +851,15 @@ def print_graph_statistics(definitions, predicate_only_names, edge_count,
     print(f"    - Unique predicates: {len(predicate_only_names)}")
     print(f"    - Total nodes: {total_nodes}")
     print(f"  Edges:")
-    if mode == "original" and definitions:
-        print(f"    - LET definition edges: {edge_count}")
-    if mode == "normal" and rules:
+    if rules:
         print(f"    - Causality rules: {len(rules)}")
         print(f"    - Causality edges: {causality_edge_count}")
+    if definitions:
+        print(f"    - LET definition edges: {edge_count}")
+        if edge_count > 0:
+            print(f"    - Average predicates per LET definition: {edge_count / len(definitions):.2f}")
     print(f"    - Implications: {len(implications)}")
     print(f"    - Implication edges: {implication_edge_count}")
-    if mode == "original" and definitions and edge_count > 0:
-        print(f"  Average predicates per LET definition: {edge_count / len(definitions):.2f}")
     
     # Print top used predicates
     if definitions:

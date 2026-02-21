@@ -2,7 +2,6 @@
 """
 Generate PyVis graph showing LET definition dependencies from MFOTL formula JSON.
 Each predicate node is used only once and reused across different definitions.
-Supports both original and normal mode for different JSON formats.
 """
 
 import json
@@ -24,8 +23,8 @@ from utils.html import (
 )
 
 
-def create_graph(json_file, output_file, mode="original", filter_polarity=False):
-    """Create PyVis graph from formula JSON showing LET definition dependencies or causality rules."""
+def create_graph(json_file, output_file, filter_polarity=False):
+    """Create PyVis graph from formula JSON showing causality rules."""
     
     # Load JSON
     with open(json_file, 'r') as f:
@@ -87,7 +86,7 @@ def create_graph(json_file, output_file, mode="original", filter_polarity=False)
     template_file = os.path.join(script_dir, 'graph_template.html')
     
     checkbox_items_html = build_checkbox_items_html(all_node_ids, nontrivial_sccs, node_id_to_label)
-    edge_controls_html = build_edge_controls_html(mode, False)  # No LET edges in rule mode
+    edge_controls_html = build_edge_controls_html(False)  # No LET edges in rule mode
     partition_controls_html = build_partition_controls_html(partitions, partition_labels)
     
     # Populate template with data
@@ -110,18 +109,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Generate PyVis graph from MFOTL formula JSON')
     parser.add_argument('input', help='Input JSON file')
     parser.add_argument('output', help='Output HTML file (will be created in viz/ directory)')
-    parser.add_argument('--normal', action='store_true', 
-                       help='Process normal mode JSON (with CauByCau/CauBySup instead of simple implications)')
     parser.add_argument('--filter-polarity', action='store_true',
                        help='Filter out polarity edges (CauByCau+monotonic, CauBySup+antimonotonic)')
     
     args = parser.parse_args()
-    
-    mode = "normal" if args.normal else "original"
     
     # Force output to be in viz directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
     output_basename = os.path.basename(args.output)
     output_path = os.path.join(script_dir, output_basename)
     
-    create_graph(args.input, output_path, mode=mode, filter_polarity=args.filter_polarity)
+    create_graph(args.input, output_path, filter_polarity=args.filter_polarity)

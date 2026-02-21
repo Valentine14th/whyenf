@@ -16,7 +16,6 @@ document.addEventListener('DOMContentLoaded', function() {
     // Edge type filter checkboxes
     var edgeCheckboxes = {
         letEdges: document.getElementById('show-let-edges'),
-        implicationEdges: document.getElementById('show-implication-edges'),
         monotonicEdges: document.getElementById('show-monotonic-edges'),
         antimonotonicEdges: document.getElementById('show-antimonotonic-edges'),
         neitherEdges: document.getElementById('show-neither-edges')
