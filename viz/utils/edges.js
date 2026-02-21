@@ -7,7 +7,7 @@ const GraphEdges = (function() {
         // Check monotonicity filtering
         if (edge.monotonicity_type === 'monotonic' && checkboxes.monotonicEdges && !checkboxes.monotonicEdges.checked) return true;
         if (edge.monotonicity_type === 'antimonotonic' && checkboxes.antimonotonicEdges && !checkboxes.antimonotonicEdges.checked) return true;
-        if (edge.monotonicity_type === 'mixed' && checkboxes.mixedEdges && !checkboxes.mixedEdges.checked) return true;
+        if (edge.monotonicity_type === 'neither' && checkboxes.neitherEdges && !checkboxes.neitherEdges.checked) return true;
         
         return false;
     }

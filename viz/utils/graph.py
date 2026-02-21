@@ -2,20 +2,11 @@
 Utilities for building and manipulating the graph structure.
 """
 
-import json
 import networkx as nx
 from .config import NODE_COLORS, EDGE_COLORS
 
 
 def format_rule_label(rule_label):
-    """Format a rule label for display by extracting filename and location.
-    
-    Args:
-        rule_label: Full label like "example/GDPR/gdpr.lex:2520:1-2526:54"
-    
-    Returns:
-        Shortened label like "gdpr.lex:2520:1-2526:54" (filename with full location)
-    """
     if ':' in rule_label:
         # Split on the first colon to separate path from location info
         parts = rule_label.split('/', )
@@ -24,26 +15,43 @@ def format_rule_label(rule_label):
     return rule_label
 
 
-def add_rule_nodes(net, rules):
-    """Add rule nodes to the network."""
-    for rule in rules:
+def add_rule_nodes(net, expanded_rules) -> int:
+    """Add rule nodes to the network.
+    
+    Args:
+        net: PyVis network
+        expanded_rules: List of expanded rule dicts with filter, effects, and provenance
+    """
+    node_count = 0
+    for rule in expanded_rules:
         rule_id = rule['id']
         rule_type = rule.get('type', 'Unknown')
         rule_label = rule.get('label', rule_id)
         
         # Extract a short display name from the label
-        # Format: "example/GDPR/gdpr.lex:2520:1-2526:54" -> "gdpr.lex:2520:1-2526:54"
         display_label = format_rule_label(rule_label)
         
         # Create hover text with details including full label
-        effects_list = sorted(rule['effects'])
+        # Use provenance to show expanded names if available
+        filter_display = []
+        for pred in sorted(rule['filter']):
+            provenance = rule['filter_provenance'].get(pred, pred)
+            polarity = rule['events'].get(pred, {}).get('polarity', 'Unknown')
+            filter_display.append(f"{provenance} ({polarity})")
+        
+        effects_display = []
+        for pred in sorted(rule['effects']):
+            provenance = rule['effects_provenance'].get(pred, pred)
+            effect_type = rule['events'].get(pred, {}).get('effect', 'Unknown')
+            effects_display.append(f"{provenance} ({effect_type})")
+        
         hover_text = (
             f"Label: {rule_label}\n"
             f"Type: {rule_type}\n"
             f"Filter ({len(rule['filter'])} predicates):\n" +
-            "\n".join(f"  • {p}" for p in sorted(rule['filter'])) +
+            "\n".join(f"  • {p}" for p in filter_display) +
             f"\n\nEffects ({len(rule['effects'])} predicates):\n" +
-            "\n".join(f"  • {p}" for p in effects_list)
+            "\n".join(f"  • {p}" for p in effects_display)
         )
         
         # Color based on rule type
@@ -59,129 +67,302 @@ def add_rule_nodes(net, rules):
             shapeProperties={"borderRadius": 6},
             title=hover_text
         )
+        node_count += 1
+    
+    return node_count
 
-# Helper function to merge event monotonicity
-def _merge_event_polarity(events_dict, pred, polarity):
-    """Merge event polarity, combining different polarities into Mixed."""
-    if pred not in events_dict:
-        events_dict[pred] = polarity
-    elif events_dict[pred] != polarity:
-        # Different polarities, then mark as Mixed
-        events_dict[pred] = 'Mixed'
+def _merge_polarity(pol1: str, pol2: str) -> str:
+    """
+    Combine two polarities when merging events with the same base name.
+    
+    Rules:
+    - Monotonic + Monotonic = Monotonic
+    - Antimonotonic + Antimonotonic = Antimonotonic
+    - Monotonic + Antimonotonic = Neither
+    - Anything + Neither = Neither
+    - Anything + Irrelevant = Irrelevant
+    """
+    if pol1 == 'Irrelevant' or pol2 == 'Irrelevant':
+        return 'Irrelevant'
+    if pol1 == 'Neither' or pol2 == 'Neither':
+        return 'Neither'
+    if pol1 == pol2:
+        return pol1
+    # Monotonic + Antimonotonic = Neither
+    return 'Neither'
 
-
-def _expand_predicates_recursively(predicates, let_definitions_dict, events_dict=None):
-    """Recursively expand LET predicates until only base predicates remain.
+def _expand_polarity(outer_polarity: str, inner_polarity: str) -> str:
+    """
+    Compose two polarities when expanding LETs into their consituent events.
+    
+    Rules:
+    - Monotonic + Monotonic = Monotonic
+    - Antimonotonic + Antimonotonic = Monotonic
+    - Monotonic + Antimonotonic = Antimonotonic
+    - Antimonotonic + Monotonic = Antimonotonic
+    - Irrelevant + anything = Irrelevant
+    - anything + Irrelevant = Irrelevant
+    - Neither + anything = Neither (unless Irrelevant)
+    - anything + Neither = Neither (unless Irrelevant)
+    """
+    if outer_polarity == 'Irrelevant' or inner_polarity == 'Irrelevant':
+        return 'Irrelevant'
+    if outer_polarity == 'Neither' or inner_polarity == 'Neither':
+        return 'Neither'
+    
+    if outer_polarity == 'Monotonic':
+        return inner_polarity
+    elif outer_polarity == 'Antimonotonic':
+        if inner_polarity == 'Monotonic':
+            return 'Antimonotonic'
+        elif inner_polarity == 'Antimonotonic':
+            return 'Monotonic'
+        else:
+            return inner_polarity
+    else:
+        return inner_polarity
+    
+    
+def expand_events(events: list, lets: dict, visited: set = None) -> tuple:
+    """
+    Expand events by recursively resolving let-bound predicates.
+    
+    For filters: recursively expand let-bound predicates to their constituent events,
+                 composing polarities. Notation: e>e' means e' comes from let-bound event e.
+    
+    For effects: expand to effect events (as effects) and non-effect events (as filters).
     
     Args:
-        predicates: Set of predicate names (may include LET names)
-        let_definitions_dict: Dict mapping LET names to their definitions
-        events_dict: Optional dict to accumulate event polarities
+        events: list of event dicts with name, polarity, effect
+        lets: dict of let bindings
+        visited: set of already-visited let predicates (to avoid cycles)
+        
+    Returns:
+        tuple: (expanded_effects, expanded_filters)
+               where each is a list of (display_name, polarity, effect_type_or_none)
+    """
+    if visited is None:
+        visited = set()
+    
+    expanded_effects = []
+    expanded_filters = []
+    
+    for event in events:
+        name = event['name']
+        polarity = event.get('polarity', 'Monotonic')
+        effect = event.get('effect') 
+        
+        # Check if this is a let-bound predicate
+        if name in lets and name not in visited:
+            let_data = lets[name]
+            let_enftype = let_data['enftype']
+            
+            # Recursively expand the let binding's events
+            new_visited = visited | {name}
+            sub_expanded_effects, sub_expanded_filters = expand_events(
+                let_data['events'], lets, new_visited
+            )
+            
+            if effect in ('Sup', 'Cau'):
+                # This is an effect on a let-bound predicate
+                # The effect events from the let become effects here
+                # The filter events from the let become filters here
+                for sub_name, sub_pol, sub_eff in sub_expanded_effects:
+                    display_name = f"{name}>{sub_name}"
+                    composed_polarity = _expand_polarity(polarity, sub_pol)
+                    # The effect type propagates from the outer effect
+                    expanded_effects.append((display_name, composed_polarity, effect))
+                
+                for sub_name, sub_pol, _ in sub_expanded_filters:
+                    display_name = f"{name}>{sub_name}"
+                    composed_polarity = _expand_polarity(polarity, sub_pol)
+                    # Skip Irrelevant filters
+                    if composed_polarity != 'Irrelevant':
+                        expanded_filters.append((display_name, composed_polarity, None))
+            else:
+                # This is a filter on a let-bound predicate
+                # All events from the let become filters with composed polarity
+                for sub_name, sub_pol, sub_eff in sub_expanded_effects:
+                    display_name = f"{name}>{sub_name}"
+                    composed_polarity = _expand_polarity(polarity, sub_pol)
+                    # Skip Irrelevant filters
+                    if composed_polarity != 'Irrelevant':
+                        expanded_filters.append((display_name, composed_polarity, None))
+                
+                for sub_name, sub_pol, _ in sub_expanded_filters:
+                    display_name = f"{name}>{sub_name}"
+                    composed_polarity = _expand_polarity(polarity, sub_pol)
+                    # Skip Irrelevant filters
+                    if composed_polarity != 'Irrelevant':
+                        expanded_filters.append((display_name, composed_polarity, None))
+        else:
+            # Only add if this is NOT a let-bound predicate
+            # (If it's in lets but we're here, it means it was already visited - skip it)
+            if name not in lets:
+                if effect in ('Sup', 'Cau'):
+                    expanded_effects.append((name, polarity, effect))
+                else:
+                    # Skip Irrelevant filters
+                    if polarity != 'Irrelevant':
+                        expanded_filters.append((name, polarity, None))
+    
+    return expanded_effects, expanded_filters
+
+def merge_events_by_base(events: list, is_effect: bool = False) -> list:
+    """
+    Merge events that have the same base event name (rightmost part after '>').
+    
+    For each unique base event:
+    - Collect all chains leading to it
+    - Combine polarities: Monotonic + Antimonotonic = Neither
+    - Keep the merged display name showing chains: "a>b, c>b" -> "b [via a, c]"
+    
+    Args:
+        events: list of (display_name, polarity, effect_type_or_none)
+        is_effect: whether these are effects (True) or filters (False)
+        
+    Returns:
+        list of merged events: (display_name, base_name, combined_polarity, effect_type_or_none)
+    """
+    from collections import defaultdict
+    
+    # Group by base event name
+    # For effects, also group by effect_type since Sup and Cau are different
+    groups = defaultdict(list)
+    
+    for item in events:
+        name, polarity, eff_type = item
+        base_name = name.split('>')[-1]
+        
+        if is_effect:
+            key = (base_name, eff_type)
+        else:
+            key = (base_name, None)
+        
+        groups[key].append((name, polarity, eff_type))
+    
+    # Merge each group
+    merged = []
+    for (base_name, eff_type), items in groups.items():
+        if len(items) == 1:
+            # No merging needed - add base_name to tuple
+            display_name, polarity, effect_type = items[0]
+            merged.append((display_name, base_name, polarity, effect_type))
+        else:
+            # Combine polarities
+            combined_polarity = items[0][1]
+            for _, pol, _ in items[1:]:
+                combined_polarity = _merge_polarity(combined_polarity, pol)
+            
+            # Skip if combined polarity is Irrelevant (for filters)
+            if not is_effect and combined_polarity == 'Irrelevant':
+                continue
+            
+            # Build display name showing all chains
+            chains = []
+            for name, _, _ in items:
+                if '>' in name:
+                    # Extract the chain prefix (everything before the last >)
+                    chain = name.rsplit('>', 1)[0]
+                    chains.append(chain)
+                # Skip direct events - they have no chain
+            
+            # Create merged display name
+            if chains:
+                # Multiple chains - use [via ...] format
+                chains_str = ', '.join(chains)
+                display_name = f"{base_name} [via {chains_str}]"
+            else:
+                # All are direct events, no chain info needed
+                display_name = base_name
+            
+            merged.append((display_name, base_name, combined_polarity, eff_type))
+    
+    return merged
+
+
+def expand_rules(rules, let_definitions_dict=None):
+    """Expand rules by recursively resolving LET definitions.
+    
+    Args:
+        rules: List of rule dictionaries with 'id', 'label', 'events' fields
+        let_definitions_dict: Dict mapping LET names to their definitions (optional)
     
     Returns:
-        Tuple of (expanded_predicates, provenance_map) where:
-        - expanded_predicates: Set of fully expanded base predicates
-        - provenance_map: Dict mapping each predicate to list of LET names it was expanded from
+        List of expanded rule dictionaries with fields:
+        - id, label: original rule identifiers
+        - filter, effects: sets of base predicate names
+        - filter_provenance, effects_provenance: dicts mapping base name to display name
+        - events: dict mapping base name to {polarity, effect}
     """
-    if not let_definitions_dict:
-        return predicates, {}
-    
-    expanded = set()
-    to_expand = [(pred, []) for pred in predicates]  # (predicate, let_chain)
-    visited = {}  # predicate -> let_chain (track what we've processed)
-    provenance = {}  # predicate -> list of LET names
-    
-    # Safety limit to prevent infinite loops
-    max_iterations = 1000
-    iteration = 0
-    
-    while to_expand and iteration < max_iterations:
-        iteration += 1
-        current, let_chain = to_expand.pop()
+    expanded_rules = []
+    for rule in rules:
+        # Expand LET definitions in effects and filters, composing polarities
+        expanded_effect, expanded_filter = expand_events(
+            rule['events'], 
+            let_definitions_dict or {}, 
+            set()  # Initialize as empty set, not list
+        )
         
-        # Skip if already processed with same or shorter chain
-        if current in visited:
-            continue
-        visited[current] = let_chain
+        # Merge events by base name, combining polarities
+        merged_effect = merge_events_by_base(expanded_effect, is_effect=True)
+        merged_filter = merge_events_by_base(expanded_filter, is_effect=False)
         
-        if current in let_definitions_dict:
-            # It's a LET - add its constituents to expand queue
-            let_def = let_definitions_dict[current]
-            new_chain = let_chain + [current]
+        # Extract base names, provenance, and events from tuples
+        effects_set = set()
+        effects_provenance = {}
+        filter_set = set()
+        filter_provenance = {}
+        events_dict = {}
+        
+        for display_name, base_name, polarity, effect_type in merged_effect:
+            effects_set.add(base_name)
+            effects_provenance[base_name] = display_name
+            events_dict[base_name] = {'polarity': polarity, 'effect': effect_type}
+        
+        for display_name, base_name, polarity, effect_type in merged_filter:
+            filter_set.add(base_name)
+            filter_provenance[base_name] = display_name
             
-            for pred in let_def['predicates']:
-                to_expand.append((pred, new_chain))
-            
-            # Merge events if tracking them
-            if events_dict is not None:
-                for event_pred, polarity in let_def.get('events', {}).items():
-                    _merge_event_polarity(events_dict, event_pred, polarity)
-        else:
-            # Base predicate - add to result
-            expanded.add(current)
-            if let_chain:
-                provenance[current] = let_chain
+            # If predicate appears in both effects and filters
+            if base_name in events_dict:
+                # Keep the effect type from the effect entry, but update polarity from filter
+                events_dict[base_name]['polarity'] = polarity
+            else:
+                events_dict[base_name] = {'polarity': polarity, 'effect': effect_type}
+        
+        expanded_rules.append({
+            'id': rule['id'],
+            'label': rule.get('label', rule['id']),
+            'type': rule.get('type', 'Unknown'),
+            'filter': filter_set,
+            'effects': effects_set,
+            'filter_provenance': filter_provenance,
+            'effects_provenance': effects_provenance,
+            'events': events_dict,
+        })
     
-    if iteration >= max_iterations:
-        print(f"WARNING: Maximum iteration limit reached during LET expansion!")
-        print(f"  Starting predicates: {predicates}")
-        print(f"  Remaining to expand: {len(to_expand)} items")
-        print(f"  Already visited: {len(visited)} predicates")
-    
-    return expanded, provenance
+    return expanded_rules
 
 
-def add_rule_edges(net, rules, let_definitions_dict=None):
+def add_rule_edges(net, expanded_rules):
     """Add edges between rules where one rule's effects appear in another's filter.
-    
-    Handles both direct predicates and LET definitions by recursively expanding LETs
-    into their constituent predicates before analysis.
     
     Args:
         net: PyVis network
-        rules: List of rule dictionaries
-        let_definitions_dict: Dict mapping LET definition names to their data (optional)
+        expanded_rules: List of expanded rule dicts (output from expand_rules function)
     
     Edge color is determined by the monotonicity of shared predicates in the target rule's filter:
     - Green: All shared predicates are Monotonic
     - Orange: All shared predicates are Antimonotonic  
-    - Purple: Mixed monotonicity
+    - Purple: Neither monotonicity
     """
-    # Expand rules: recursively replace LET predicates with their constituents
-    expanded_rules = []
-    for rule in rules:
-        # Start with events from original rule, then merge LET events
-        filter_events = rule.get('events', {}).copy()
-        
-        # Expand filter predicates recursively
-        expanded_filter, filter_provenance = _expand_predicates_recursively(
-            rule['filter'], 
-            let_definitions_dict, 
-            filter_events
-        )
-        
-        # Expand effect predicates recursively
-        expanded_effects, effects_provenance = _expand_predicates_recursively(
-            rule['effects'], 
-            let_definitions_dict
-        )
-        
-        expanded_rules.append({
-            'id': rule['id'],
-            'label': rule.get('label', rule['id']),  # Preserve the label
-            'filter': expanded_filter,
-            'effects': expanded_effects,
-            'events': filter_events,
-            'filter_provenance': filter_provenance,
-            'effects_provenance': effects_provenance
-        })
-    
-    # Now do simple shared predicate analysis
+    # Simple shared predicate analysis
     edge_count = 0
     stats = {
         'monotonic': 0,
         'antimonotonic': 0,
-        'mixed': 0
+        'neither': 0
     }
     
     for rule_from in expanded_rules:
@@ -194,63 +375,61 @@ def add_rule_edges(net, rules, let_definitions_dict=None):
             
             if common_predicates:
                 # Determine monotonicity
-                events = rule_to['events']
                 monotonicities = set()
                 monotonicity_details = []
                 
+                # Check the combined polarity of each shared predicate in the target rule's events
                 for pred in common_predicates:
-                    polarity = events.get(pred, 'Mixed')
+                    polarity = rule_to['events'].get(pred, {}).get('polarity', 'Neither')
                     monotonicities.add(polarity)
                     monotonicity_details.append(f"{pred} ({polarity})")
                 
                 # Determine edge color based on monotonicity
                 if monotonicities == {'Monotonic'}:
-                    edge_color = "#27ae60"
+                    edge_color = EDGE_COLORS["monotonic"]
                     monotonicity_type = "monotonic"
                     stats['monotonic'] += 1
                 elif monotonicities == {'Antimonotonic'}:
-                    edge_color = "#e67e22"
+                    edge_color = EDGE_COLORS["antimonotonic"]
                     monotonicity_type = "antimonotonic"
                     stats['antimonotonic'] += 1
                 else:
-                    edge_color = "#9b59b6"
-                    monotonicity_type = "mixed"
-                    stats['mixed'] += 1
+                    edge_color = EDGE_COLORS["neither"]
+                    monotonicity_type = "neither"
+                    stats['neither'] += 1
                 
                 # Create edge title with LET provenance
-                # Use original labels instead of RULE_X
-                rule_from_label = rule_from.get('label', rule_from['id'])
-                rule_to_label = rule_to.get('label', rule_to['id'])
+                rule_from_label = rule_from.get('label', rule_from['id']).split('/')[-1]
+                rule_to_label = rule_to.get('label', rule_to['id']).split('/')[-1]
                 
                 pred_str = ", ".join(sorted(common_predicates))
                 
                 # Build detailed predicate info with LET provenance
                 predicate_details = []
                 for pred in sorted(common_predicates):
-                    polarity = events.get(pred, 'Mixed')
+                    polarity = rule_to['events'].get(pred, {}).get('polarity', 'Neither')
                     
                     # Get LET provenance for source (effects) and target (filter)
-                    from_lets = rule_from['effects_provenance'].get(pred, [])
-                    to_lets = rule_to['filter_provenance'].get(pred, [])
+                    from_display = rule_from['effects_provenance'].get(pred, pred)
+                    to_display = rule_to['filter_provenance'].get(pred, pred)
                     
                     detail_parts = [f"{pred} ({polarity})"]
                     
-                    if from_lets or to_lets:
+                    # Show provenance if display name differs from base name
+                    if from_display != pred or to_display != pred:
                         provenance_parts = []
-                        if from_lets:
-                            from_chain = " → ".join(from_lets)
-                            provenance_parts.append(f"from: {from_chain}")
-                        if to_lets:
-                            to_chain = " → ".join(to_lets)
-                            provenance_parts.append(f"to: {to_chain}")
+                        if from_display != pred:
+                            provenance_parts.append(f"from: {from_display}")
+                        if to_display != pred:
+                            provenance_parts.append(f"to: {to_display}")
                         detail_parts.append(f"[{'; '.join(provenance_parts)}]")
                     
                     predicate_details.append(" ".join(detail_parts))
                 
                 title = (
-                    f"{rule_from_label} → {rule_to_label}\n"
-                    f"Shared predicates: {pred_str}\n"
-                    f"Monotonicity: {monotonicity_type.capitalize()}\n" +
+                    f"{rule_from_label} → {rule_to_label}\n" +
+                    f"{rule_from.get('type', 'Unknown')} -> {monotonicity_type.capitalize()}\n " +
+                    f"Shared predicates ({len(common_predicates)}):\n" +
                     "\n".join(f"  • {detail}" for detail in predicate_details)
                 )
                 
@@ -274,7 +453,7 @@ def add_rule_edges(net, rules, let_definitions_dict=None):
     return edge_count
 
 
-def filter_polarity_edges(net, rules):
+def filter_polarity_edges(net, expanded_rules):
     """Remove polarity edges from the graph.
     
     Removes edges where:
@@ -286,13 +465,13 @@ def filter_polarity_edges(net, rules):
     
     Args:
         net: PyVis network with edges to filter
-        rules: List of rule dictionaries with 'id' and 'type' fields
+        expanded_rules: List of expanded rule dicts with 'id' and 'type' fields
     
     Returns:
         Number of edges removed
     """
     # Build mapping of rule ID to rule type
-    rule_type_map = {rule['id']: rule.get('type', 'Unknown') for rule in rules}
+    rule_type_map = {rule['id']: rule.get('type', 'Unknown') for rule in expanded_rules}
     
     # Find edges to remove
     edges_to_remove = []
@@ -322,7 +501,7 @@ def filter_polarity_edges(net, rules):
         remaining_stats = {
             'monotonic': 0,
             'antimonotonic': 0,
-            'mixed': 0
+            'neither': 0
         }
         for edge in net.edges:
             monotonicity_type = edge.get('monotonicity_type', '')
@@ -335,7 +514,7 @@ def filter_polarity_edges(net, rules):
             print(f"  By monotonicity:")
             print(f"    - Monotonic: {remaining_stats['monotonic']} ({100*remaining_stats['monotonic']/remaining_total:.1f}%)")
             print(f"    - Antimonotonic: {remaining_stats['antimonotonic']} ({100*remaining_stats['antimonotonic']/remaining_total:.1f}%)")
-            print(f"    - Mixed: {remaining_stats['mixed']} ({100*remaining_stats['mixed']/remaining_total:.1f}%)")
+            print(f"    - Neither: {remaining_stats['neither']} ({100*remaining_stats['neither']/remaining_total:.1f}%)")
         
         # Compute and print shared predicates after filtering
         shared_after = _compute_shared_predicates(net.edges)
@@ -354,12 +533,13 @@ def extract_node_name(node_id):
     return node_id[4:] if node_id.startswith('LET_') else node_id
 
 
-def format_scc_label(scc_nodes, strip_prefix=False):
+def format_scc_label(scc_nodes, strip_prefix=False, node_labels=None):
     """Format SCC label showing nodes.
     
     Args:
         scc_nodes: List of node IDs in the SCC
         strip_prefix: If True, remove RULE_ prefix from node names
+        node_labels: Optional dict mapping node IDs to display labels
     
     Returns:
         Formatted string like "SCC [RULE_5, RULE_8, RULE_12]" or 
@@ -367,8 +547,10 @@ def format_scc_label(scc_nodes, strip_prefix=False):
     """
     sorted_nodes = sorted(scc_nodes)
     
-    # Strip prefix if requested
-    if strip_prefix:
+    # Use node labels if provided, otherwise use node IDs
+    if node_labels:
+        display_nodes = [node_labels.get(n, n) for n in sorted_nodes]
+    elif strip_prefix:
         display_nodes = [n.replace('RULE_', '') for n in sorted_nodes]
     else:
         display_nodes = sorted_nodes
@@ -381,189 +563,13 @@ def format_scc_label(scc_nodes, strip_prefix=False):
         return f"SCC [{node_preview}, ... {len(sorted_nodes)} nodes]"
 
 
-def calculate_edge_properties(count, base_width=1.5, base_opacity=0.5, 
-                             width_increment=0.5, opacity_increment=0.1, 
-                             max_width=6, max_opacity=0.95):
-    """Calculate edge width and opacity based on count."""
-    width = min(base_width + (count - 1) * width_increment, max_width)
-    opacity = min(base_opacity + (count - 1) * opacity_increment, max_opacity)
-    return width, opacity
-
-
-def get_causality_color(rule_types):
-    """Determine edge color based on causality rule types."""
-    if rule_types == {"CauByCau"}:
-        return EDGE_COLORS["caubycau"]
-    elif rule_types == {"CauBySup"}:
-        return EDGE_COLORS["caubysup"]
-    else:
-        return EDGE_COLORS["mixed"]
-
-
-def add_predicate_nodes(net, predicates, let_predicates, implication_predicates, 
-                       causality_predicates, let_definition_names):
-    """Add all predicate nodes to the network."""
-    def build_predicate_title(pred):
-        title_parts = [f"Predicate: {pred}"]
-        locations = []
-        if pred in let_predicates:
-            locations.append("LET definitions")
-        if pred in implication_predicates:
-            locations.append("implications")
-        if pred in causality_predicates:
-            locations.append("causality rules")
-        if locations:
-            title_parts.append(f"(Used in {' and '.join(locations)})")
-        return "\n".join(title_parts)
-    
-    for pred in predicates:
-        net.add_node(
-            pred,
-            label=pred,
-            color=NODE_COLORS["predicate"],
-            shape="dot",
-            size=25,
-            font={"size": 14, "color": "#2c3e50"},
-            title=build_predicate_title(pred)
-        )
-
-
-def add_let_definition_nodes(net, definitions):
-    """Add all LET definition nodes to the network."""
-    for defn in definitions:
-        let_id = f"LET_{defn['name']}"
-        predicates_list = sorted(defn['predicates'])
-        hover_text = (
-            f"LET definition: {defn['name']}\nType: {defn['type']}\n"
-            f"Uses {len(defn['predicates'])} predicates:\n" +
-            "\n".join(f"  • {p}" for p in predicates_list)
-        )
-        net.add_node(
-            let_id,
-            label=defn['name'],
-            color=NODE_COLORS["let"],
-            shape="box",
-            size=30,
-            font={"size": 15, "color": "#ffffff", "bold": True},
-            shapeProperties={"borderRadius": 6},
-            title=hover_text
-        )
-
-
-def add_let_definition_edges(net, definitions, let_definition_names):
-    """Add edges from LET definitions to their predicates."""
-    edge_count = 0
-    for defn in definitions:
-        let_id = f"LET_{defn['name']}"
-        for pred in defn["predicates"]:
-            net.add_edge(
-                get_node_id(pred, let_definition_names),
-                let_id,
-                color={"color": EDGE_COLORS["let"], "highlight": "#e67e22", "opacity": 0.6},
-                width=2,
-                title=f"{pred} used by {defn['name']}"
-            )
-            edge_count += 1
-    return edge_count
-
-
-def add_causality_edges(net, rules, let_definition_names):
-    """Add edges from causality rules (CauByCau and CauBySup)."""
-    # Aggregate causality edges
-    causality_edges = {}  # (source, target) -> {count, types}
-    for rule in rules:
-        for filter_pred in rule["filter"]:
-            for effect_pred in rule["effects"]:
-                edge_key = (
-                    get_node_id(filter_pred, let_definition_names),
-                    get_node_id(effect_pred, let_definition_names)
-                )
-                if edge_key not in causality_edges:
-                    causality_edges[edge_key] = {"count": 0, "types": set()}
-                causality_edges[edge_key]["count"] += 1
-                causality_edges[edge_key]["types"].add(rule["type"])
-    
-    # Create edges with aggregated properties
-    edge_count = 0
-    for (filter_node, effect_node), data in causality_edges.items():
-        count = data["count"]
-        width, opacity = calculate_edge_properties(count, base_width=2, base_opacity=0.6)
-        rule_types_str = ", ".join(sorted(data["types"]))
-        plural = "rules" if count > 1 else "rule"
-        
-        net.add_edge(
-            filter_node,
-            effect_node,
-            color={
-                "color": get_causality_color(data["types"]),
-                "highlight": "#f39c12",
-                "opacity": opacity
-            },
-            width=width,
-            title=f"Causality: {filter_node} → {effect_node}\n({count} {plural}: {rule_types_str})"
-        )
-        edge_count += 1
-    
-    return edge_count
-
-
-def add_implication_edges(net, implications, let_definition_names):
-    """Add edges from implications for legacy non-normalized graph."""
-    # Aggregate implication edges
-    implication_edges = {}  # (source, target) -> count
-    for imp in implications:
-        for left_pred in imp["left"]:
-            for right_pred in imp["right"]:
-                edge_key = (
-                    get_node_id(left_pred, let_definition_names),
-                    get_node_id(right_pred, let_definition_names)
-                )
-                implication_edges[edge_key] = implication_edges.get(edge_key, 0) + 1
-    
-    # Create implication edges with aggregated properties
-    edge_count = 0
-    for (left_node, right_node), count in implication_edges.items():
-        width, opacity = calculate_edge_properties(count, base_width=1.5, base_opacity=0.5, max_width=5)
-        plural = "implications" if count > 1 else "implication"
-        
-        net.add_edge(
-            left_node,
-            right_node,
-            color={"color": EDGE_COLORS["implication"], "highlight": "#e74c3c", "opacity": opacity},
-            width=width,
-            dashes=[5, 5],
-            title=f"Implication: {left_node} → {right_node}\n({count} {plural})"
-        )
-        edge_count += 1
-    
-    return edge_count
-
-
-def find_sccs(net):
-    """Find Strongly Connected Components in the graph."""
-    nx_graph = nx.DiGraph()
-    for node in net.nodes:
-        nx_graph.add_node(node['id'])
-    for edge in net.edges:
-        nx_graph.add_edge(edge['from'], edge['to'])
-    
-    sccs = [list(scc) for scc in nx.strongly_connected_components(nx_graph) if len(scc) > 1]
-    scc_map = {}
-    for i, scc in enumerate(sccs):
-        for node_id in scc:
-            scc_map[node_id] = i
-            
-    print(f"Found {len(sccs)} SCCs with more than one node.")
-    return sccs, scc_map
-
-
 def _build_graph_and_compute_sccs(net):
     """Build networkx graph and compute all SCCs.
     
     Returns:
         - nx_graph: NetworkX DiGraph
-        - sccs_all: List of all SCCs (list of node lists)
-        - scc_map_all: Dict mapping node_id to SCC index
+        - sccs_lists: List of all SCCs (list of node lists)
+        - node_to_scc_map: Dict mapping node_id to SCC index
         - condensed: Condensed graph (DAG of SCCs)
     """
     # Build networkx graph
@@ -574,17 +580,13 @@ def _build_graph_and_compute_sccs(net):
         nx_graph.add_edge(edge['from'], edge['to'])
     
     # Find all SCCs
-    sccs_all = list(nx.strongly_connected_components(nx_graph))
-    sccs_all = [list(scc) for scc in sccs_all]
-    scc_map_all = {}
-    for i, scc in enumerate(sccs_all):
-        for node_id in scc:
-            scc_map_all[node_id] = i
+    sccs_lists = list(nx.strongly_connected_components(nx_graph))
+    sccs_lists = [list(scc) for scc in sccs_lists]
     
     # Create condensed graph (DAG of SCCs)
-    condensed = nx.condensation(nx_graph)
+    condensed_nx_graph = nx.condensation(nx_graph)
     
-    return nx_graph, sccs_all, scc_map_all, condensed
+    return sccs_lists, condensed_nx_graph
 
 
 def _merge_partitions(partitions, partition_labels, sccs_all):
@@ -642,14 +644,15 @@ def _merge_partitions(partitions, partition_labels, sccs_all):
         suffix = f"leaf{'ves' if len(anchor_names) > 1 else ''}"
         merged_labels[key_idx] = f"{label_base} ({len(all_nodes) - len(anchor_names)} nodes, {len(anchor_names)} {suffix})"
     
-    return merged_partitions, merged_labels, node_set_to_anchors
+    return merged_partitions, merged_labels
 
 
-def _print_partition_statistics(sccs_all, anchor_sccs, partitions, merged_partitions, partition_type):
+def _print_partition_statistics(sccs_all, sccs_nontrivial, anchor_sccs, partitions, merged_partitions, partition_type):
     """Print partition computation statistics.
     
     Args:
         sccs_all: List of all SCCs
+        sccs_nontrivial: List of non-trivial SCCs (size > 1)
         anchor_sccs: List of anchor SCC indices (sources or leaves)
         partitions: Dict of initial partitions before merging
         merged_partitions: Dict of partitions after merging
@@ -657,17 +660,19 @@ def _print_partition_statistics(sccs_all, anchor_sccs, partitions, merged_partit
     """
     print(f"\nPartition Statistics ({partition_type}-based):")
     print(f"Found {len(sccs_all)} SCCs (including trivial ones)")
-    print(f"Found {len(anchor_sccs)} {partition_type} SCCs in condensed graph")
+    print(f"Filtered to {len(sccs_nontrivial)} non-trivial SCCs (size > 1)")
+    print(f"Found {len(anchor_sccs)} leaf SCCs in condensed graph")
     print(f"Computed {len(partitions)} initial {partition_type}-based partitions")
     print(f"Merged into {len(merged_partitions)} unique partitions\n")
 
 
-def _print_common_nodes(partitions, partition_labels):
+def _print_common_nodes(partitions, partition_labels, node_labels=None):
     """Print nodes that are common to all partitions.
     
     Args:
         partitions: Dict mapping partition index to set of node IDs
         partition_labels: Dict mapping partition index to label string
+        node_labels: Optional dict mapping node IDs to display labels
     """
     if not partitions:
         print("No partitions to analyze for common nodes.")
@@ -687,77 +692,79 @@ def _print_common_nodes(partitions, partition_labels):
     # Print results
     print(f"Nodes common to all {len(partitions)} partitions: {len(common_nodes)}")
     
-    if common_nodes:
-        # Sort by extracting rule number for nicer display
-        def sort_key(node_id):
-            if node_id.startswith('RULE_'):
-                try:
-                    return (0, int(node_id.replace('RULE_', '')))
-                except:
-                    return (0, 0)
-            return (1, node_id)
-        
-        sorted_nodes = sorted(common_nodes, key=sort_key)
-        
+    if common_nodes:     
         # Print in columns for better readability
         print("  Common nodes:")
-        for i in range(0, len(sorted_nodes), 5):
-            batch = sorted_nodes[i:i+5]
-            print("    " + ", ".join(batch))
+        for i in range(0, len(common_nodes), 5):
+            batch = list(common_nodes)[i:i+5]
+            # Use node labels if available, otherwise use node IDs
+            if node_labels:
+                display_batch = [node_labels.get(node_id, node_id) for node_id in batch]
+            else:
+                display_batch = batch
+            print("    " + ", ".join(display_batch))
         print()
     else:
         print("  No nodes are common to all partitions.\n")
 
-
-def compute_backward_partitions(net):
+def compute_backward_partitions(net, node_labels):
     """
     Compute backward-reachable partitions from leaves (NOT successor-closed).
     
     Each partition includes only nodes that can reach a leaf node (node with no outgoing 
-    edges). 
+    edges). Also marks nodes in leaf/source SCCs.
     
     Returns:
-        - sccs_all: List of all SCCs (list of node lists)
-        - scc_map_all: Dict mapping node_id to SCC index
+        - sccs_nontrivial: List of non-trivial SCCs (size > 1) 
+        - node_to_scc_map: Dict mapping node_id to SCC index in sccs_nontrivial
         - partitions: Dict mapping leaf SCC index to set of backward-reachable node IDs
         - partition_labels: Dict mapping leaf SCC index to leaf node name
-        - condensed_graph: The condensed NetworkX graph
         - stats: Dict with partition statistics
+        - leaf_nodes: Set of all nodes in leaf SCCs
+        - source_nodes: Set of all nodes in source SCCs
     """
-    nx_graph, sccs_all, scc_map_all, condensed = _build_graph_and_compute_sccs(net)
+
+    sccs_lists, condensed_nx_graph = _build_graph_and_compute_sccs(net)
     
-    # Find leaf nodes in condensed graph (no outgoing edges)
-    leaf_sccs = [node for node in condensed.nodes() if condensed.out_degree(node) == 0]
+    # Find leaf and source SCCs in condensed graph
+    leaf_sccs = [node for node in condensed_nx_graph.nodes() if condensed_nx_graph.out_degree(node) == 0]
+    source_sccs = [node for node in condensed_nx_graph.nodes() if condensed_nx_graph.in_degree(node) == 0]
     
     # For each leaf SCC, compute backward-reachable set 
     partitions = {}
     partition_labels = {}
     for leaf_scc_idx in leaf_sccs:
         # Get all SCCs that can reach this leaf SCC (predecessors/ancestors in DAG)
-        backward_reachable_sccs = nx.ancestors(condensed, leaf_scc_idx)
+        backward_reachable_sccs = nx.ancestors(condensed_nx_graph, leaf_scc_idx)
         backward_reachable_sccs.add(leaf_scc_idx)  # Include the leaf itself
         
         # Expand to original nodes 
         partition_nodes = set()
         for scc_idx in backward_reachable_sccs:
-            partition_nodes.update(sccs_all[scc_idx])
+            partition_nodes.update(sccs_lists[scc_idx])
         
         partitions[leaf_scc_idx] = partition_nodes
-        anchor_scc_nodes = sccs_all[leaf_scc_idx]
+        # Label the partition using the leaf SCC's nodes (anchor nodes)
+        anchor_scc_nodes = sccs_lists[leaf_scc_idx]
         if len(anchor_scc_nodes) <= 1:
-            partition_labels[leaf_scc_idx] = extract_node_name(sorted(anchor_scc_nodes)[0])
+            node_id = sorted(anchor_scc_nodes)[0]
+            partition_labels[leaf_scc_idx] = node_labels.get(node_id, extract_node_name(node_id))
         else:
-            partition_labels[leaf_scc_idx] = format_scc_label(anchor_scc_nodes)
+            partition_labels[leaf_scc_idx] = format_scc_label(anchor_scc_nodes, node_labels=node_labels)
     
     # Merge partitions with identical node sets
-    merged_partitions, merged_labels, node_set_to_anchors = _merge_partitions(
-        partitions, partition_labels, sccs_all
+    merged_partitions, merged_labels = _merge_partitions(
+        partitions, partition_labels, sccs_lists
     )
     
-    _print_partition_statistics(sccs_all, leaf_sccs, partitions, merged_partitions, "backward")
+    # Filter SCCs to only non-trivial ones (size > 1) 
+    sccs_nontrivial = [scc for scc in sccs_lists if len(scc) > 1]
+    node_to_scc_map = {node_id: idx for idx, scc in enumerate(sccs_nontrivial) for node_id in scc}
+    
+    _print_partition_statistics(sccs_lists, sccs_nontrivial, leaf_sccs, partitions, merged_partitions, "backward")
     
     # Compute and print common nodes across all partitions
-    _print_common_nodes(merged_partitions, merged_labels)
+    _print_common_nodes(merged_partitions, merged_labels, node_labels)
     
     stats = {
         'initial_count': len(partitions),
@@ -765,37 +772,73 @@ def compute_backward_partitions(net):
         'strategy': 'Merge if same nodes (excluding leaves)'
     }
     
-    return sccs_all, scc_map_all, merged_partitions, merged_labels, condensed, stats
+    # Mark nodes in leaf/source SCCs
+    leaf_nodes, source_nodes = mark_source_and_leaf_scc_nodes(net, sccs_lists, leaf_sccs, source_sccs, node_labels)
+    
+    return sccs_nontrivial, node_to_scc_map, merged_partitions, merged_labels, stats, leaf_nodes, source_nodes
 
 
-def find_source_and_leaf_nodes(net):
-    """Identify and color leaf and source nodes based on graph structure."""
-    all_edges = net.edges
-    all_node_ids = {node['id'] for node in net.nodes}
-    nodes_with_outgoing = {edge['from'] for edge in all_edges}
-    nodes_with_incoming = {edge['to'] for edge in all_edges}
+def mark_source_and_leaf_scc_nodes(net, sccs_lists, leaf_sccs, source_sccs, node_labels):
+    """Mark all nodes in leaf/source SCCs with clear labels.
     
-    leaf_nodes = all_node_ids - nodes_with_outgoing
-    source_nodes = all_node_ids - nodes_with_incoming
+    Args:
+        net: PyVis network
+        sccs_lists: List of all SCCs (each SCC is a list of node IDs)
+        leaf_sccs: List of leaf SCC indices in condensed graph
+        source_sccs: List of source SCC indices in condensed graph
+        node_labels: Dict mapping node IDs to labels
     
-    # Update node colors for leaf and source nodes
+    Returns:
+        Tuple of (leaf_nodes_set, source_nodes_set) containing all nodes in leaf/source SCCs
+    """
+    # Collect all nodes in leaf and source SCCs
+    leaf_nodes = set()
+    source_nodes = set()
+    
+    for scc_idx in leaf_sccs:
+        leaf_nodes.update(sccs_lists[scc_idx])
+    
+    for scc_idx in source_sccs:
+        source_nodes.update(sccs_lists[scc_idx])
+    
+    # Update node labels and titles
     for node in net.nodes:
-        if node['id'].startswith('RULE_'):
-            # Keep the original rule type color but indicate special status in title
-            if node['id'] in leaf_nodes:
-                node['title'] = node.get('title', '') + '\n[LEAF NODE - no outgoing edges]'
-            elif node['id'] in source_nodes:
-                node['title'] = node.get('title', '') + '\n[SOURCE NODE - no incoming edges]'
-        else:
-            # Legacy support for LET/predicate nodes if they exist
-            is_let_node = node['id'].startswith('LET_')
-            if node['id'] in leaf_nodes:
-                node['color'] = NODE_COLORS["leaf_let" if is_let_node else "leaf_pred"]
-            elif node['id'] in source_nodes:
-                node['color'] = NODE_COLORS["source_let" if is_let_node else "source_pred"]
+        node_id = node['id']
+        current_label = node.get('label', node_id)
+        
+        if node_id in leaf_nodes:
+            node['title'] = node.get('title', '') + '\n[IN LEAF SCC - SCC has no outgoing edges]'
+        elif node_id in source_nodes:
+            node['title'] = node.get('title', '') + '\n[IN SOURCE SCC - SCC has no incoming edges]'
     
     return leaf_nodes, source_nodes
 
+
+def _compute_shared_predicates(edges):
+    """Compute how often each predicate is shared across edges.
+    
+    Args:
+        edges: List of edge dictionaries with 'title' field containing predicate info
+    
+    Returns:
+        Dictionary mapping predicate name to count of edges it appears in
+    """
+    shared_predicate_count = {}
+    
+    for edge in edges:
+        title = edge.get('title', '')
+        # Extract predicates from title line "Shared predicates: pred1, pred2, ..."
+        if 'Shared predicates:' in title:
+            lines = title.split('\n')
+            for line in lines:
+                if line.startswith('Shared predicates:'):
+                    pred_str = line.replace('Shared predicates:', '').strip()
+                    predicates = [p.strip() for p in pred_str.split(',')]
+                    for pred in predicates:
+                        if pred:
+                            shared_predicate_count[pred] = shared_predicate_count.get(pred, 0) + 1
+    
+    return shared_predicate_count
 
 def print_graph_statistics(definitions, predicate_only_names, edge_count, 
                           implications, implication_edge_count, rules=None, 
@@ -832,32 +875,6 @@ def print_graph_statistics(definitions, predicate_only_names, edge_count,
                 print(f"    - {pred}: used in {count} definition{'s' if count > 1 else ''}")
 
 
-def _compute_shared_predicates(edges):
-    """Compute how often each predicate is shared across edges.
-    
-    Args:
-        edges: List of edge dictionaries with 'title' field containing predicate info
-    
-    Returns:
-        Dictionary mapping predicate name to count of edges it appears in
-    """
-    shared_predicate_count = {}
-    
-    for edge in edges:
-        title = edge.get('title', '')
-        # Extract predicates from title line "Shared predicates: pred1, pred2, ..."
-        if 'Shared predicates:' in title:
-            lines = title.split('\n')
-            for line in lines:
-                if line.startswith('Shared predicates:'):
-                    pred_str = line.replace('Shared predicates:', '').strip()
-                    predicates = [p.strip() for p in pred_str.split(',')]
-                    for pred in predicates:
-                        if pred:
-                            shared_predicate_count[pred] = shared_predicate_count.get(pred, 0) + 1
-    
-    return shared_predicate_count
-
 
 def _print_shared_predicates(shared_predicate_count, label=""):
     """Print top 10 most shared predicates.
@@ -878,7 +895,7 @@ def _print_edge_statistics(edge_count, stats):
     
     Args:
         edge_count: Total number of edges
-        stats: Dictionary with keys 'monotonic', 'antimonotonic', 'mixed'
+        stats: Dictionary with keys 'monotonic', 'antimonotonic', 'neither' and their respective counts
     """
     print(f"\nEdge Statistics:")
     print(f"  Total edges: {edge_count}")
@@ -887,9 +904,9 @@ def _print_edge_statistics(edge_count, stats):
         print(f"  By monotonicity:")
         print(f"    - Monotonic: {stats['monotonic']} ({100*stats['monotonic']/edge_count:.1f}%)")
         print(f"    - Antimonotonic: {stats['antimonotonic']} ({100*stats['antimonotonic']/edge_count:.1f}%)")
-        print(f"    - Mixed: {stats['mixed']} ({100*stats['mixed']/edge_count:.1f}%)")
+        print(f"    - Neither: {stats['neither']} ({100*stats['neither']/edge_count:.1f}%)")
     else:
         print(f"  By monotonicity:")
         print(f"    - Monotonic: 0")
         print(f"    - Antimonotonic: 0")
-        print(f"    - Mixed: 0")
+        print(f"    - Neither: 0")

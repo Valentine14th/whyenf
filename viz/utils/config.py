@@ -99,9 +99,7 @@ NODE_COLORS = {
 
 # Edge colors
 EDGE_COLORS = {
-    "let": "#bdc3c7",
-    "implication": "#9b59b6",
-    "caubycau": "#27ae60",
-    "caubysup": "#3498db",
-    "mixed": "#9b59b6"
+    "monotonic": "#27ae60",
+    "antimonotonic": "#e67e22",
+    "neither": "#9b59b6"
 }

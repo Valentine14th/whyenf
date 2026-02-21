@@ -63,15 +63,13 @@ def extract_let_definitions_normal(lets_array):
     definitions_dict = {}
     
     for let_def in lets_array:
-        # Extract events with monotonicity information
-        events_list = let_def.get("events", [])
-        events_dict = {event["name"]: event["polarity"] for event in events_list} if isinstance(events_list, list) else {}
+
         
         definition = {
             "name": let_def.get("e", "Unknown"),
-            "type": let_def.get("enftype", ""),
+            "enftype": let_def.get("enftype", ""),
             "predicates": extract_predicates(let_def.get("formula", {})),
-            "events": events_dict
+            "events": let_def.get("events", [])  # Keep as list of dicts with name, polarity, effect
         }
         definitions_dict[definition["name"]] = definition
     
@@ -139,17 +137,14 @@ def extract_top_level_rules(instrs):
                 recipe_by = recipe.get("by", {})
                 rule_type = recipe.get("constructor", "Unknown")
                 label = instructions[0].get("label", f"RULE_{idx}")
-                
-                # Extract events with monotonicity information
-                events_list = recipe_by.get("events", [])
-                events_dict = {event["name"]: event["polarity"] for event in events_list}
+            
                 
                 rule = {
                     "id": f"RULE_{idx}",
                     "type": rule_type,
                     "filter": extract_predicates(recipe_by.get("filter", {})),
                     "effects": extract_predicates(recipe_by.get("effects", {})),
-                    "events": events_dict,
+                    "events": recipe_by.get("events", []),
                     "label": label
                 }
                 rules.append(rule)

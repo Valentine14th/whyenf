@@ -12,15 +12,11 @@ from pyvis.network import Network
 import networkx as nx
 
 from utils.extraction import (
-    extract_predicates, extract_let_definitions, extract_implications,
-    extract_causality_rules, extract_let_definitions_normal, extract_top_level_rules
+ extract_let_definitions_normal, extract_top_level_rules
 )
 from utils.config import PHYSICS_OPTIONS
 from utils.graph import (
-    get_node_id, extract_node_name, add_predicate_nodes, add_let_definition_nodes,
-    add_let_definition_edges, add_causality_edges, add_implication_edges,
-    find_source_and_leaf_nodes, print_graph_statistics, compute_backward_partitions,
-    filter_polarity_edges
+    compute_backward_partitions, expand_rules, add_rule_nodes, add_rule_edges, filter_polarity_edges
 )
 from utils.html import (
     build_edge_controls_html, build_checkbox_items_html, build_partition_controls_html,
@@ -52,40 +48,34 @@ def create_graph(json_file, output_file, mode="original", filter_polarity=False)
                   notebook=False, bgcolor="#ffffff", font_color="#333333")
     net.set_options(json.dumps(PHYSICS_OPTIONS))
     
-    # Add rule nodes
-    from utils.graph import add_rule_nodes, add_rule_edges
-    add_rule_nodes(net, rules)
+    # Expand rules once (resolves LET definitions)
+    expanded_rules = expand_rules(rules, let_definitions_dict)
     
-    # Add edges between rules
-    edge_count = add_rule_edges(net, rules, let_definitions_dict)
+    # Add nodes and edges using expanded rules
+    node_count = add_rule_nodes(net, expanded_rules)
+    print(f"Created {node_count} nodes for rules")
+    node_id_to_label = {node['id']: node.get('label', node['id']) for node in net.nodes}
+    edge_count = add_rule_edges(net, expanded_rules)
     print(f"Created {edge_count} edges between rules")
     
     # Filter polarity edges if requested
     if filter_polarity:
-        removed_count = filter_polarity_edges(net, rules)
-        print(f"Remaining edges after filtering: {edge_count - removed_count}")
+        removed_count = filter_polarity_edges(net, expanded_rules)
     
-    # Compute backward-reachable partitions
-    sccs_all, scc_map_all, partitions, partition_labels, condensed, stats = compute_backward_partitions(net)
-    
-    # Filter SCCs to only non-trivial ones (size > 1) for visualization
-    sccs = [scc for scc in sccs_all if len(scc) > 1]
-    scc_map = {node_id: idx for idx, scc in enumerate(sccs) for node_id in scc}
-    
-    # Update node colors based on graph structure (leaf/source nodes)
-    leaf_nodes, source_nodes = find_source_and_leaf_nodes(net)
-    print(f"Found {len(leaf_nodes)} leaf nodes (no outgoing edges)")
-    print(f"Found {len(source_nodes)} source nodes (no incoming edges)")
+    # Compute backward-reachable partitions and mark source/leaf SCCs
+    nontrivial_sccs, node_to_scc_map, partitions, partition_labels, stats, leaf_nodes, source_nodes = compute_backward_partitions(net, node_id_to_label)
     
     # Save the graph
     net.save_graph(output_file)
     
     # Prepare data for HTML template
+    # Create mapping of node IDs to display labels for checkboxes
     all_node_ids = sorted([rule['id'] for rule in rules])
+    
     leaf_node_names_json = json.dumps(list(leaf_nodes))
     source_node_names_json = json.dumps(list(source_nodes))
-    scc_map_json = json.dumps(scc_map)
-    sccs_json = json.dumps(sccs)
+    node_to_scc_map_json = json.dumps(node_to_scc_map)
+    nontrivial_sccs_json = json.dumps(nontrivial_sccs)
     
     # Prepare partition data (convert sets to lists for JSON serialization)
     partitions_json = json.dumps({str(k): list(v) for k, v in partitions.items()})
@@ -96,7 +86,7 @@ def create_graph(json_file, output_file, mode="original", filter_polarity=False)
     script_dir = os.path.dirname(os.path.abspath(__file__))
     template_file = os.path.join(script_dir, 'graph_template.html')
     
-    checkbox_items_html = build_checkbox_items_html(all_node_ids, sccs)
+    checkbox_items_html = build_checkbox_items_html(all_node_ids, nontrivial_sccs, node_id_to_label)
     edge_controls_html = build_edge_controls_html(mode, False)  # No LET edges in rule mode
     partition_controls_html = build_partition_controls_html(partitions, partition_labels)
     
@@ -104,7 +94,7 @@ def create_graph(json_file, output_file, mode="original", filter_polarity=False)
     widget_html = load_and_populate_template(
         template_file, edge_controls_html, checkbox_items_html,
         leaf_node_names_json, source_node_names_json,
-        scc_map_json, sccs_json, partitions_json, partition_labels_json,
+        node_to_scc_map_json, nontrivial_sccs_json, partitions_json, partition_labels_json,
         partition_controls_html, stats_json, filter_polarity
     )
     

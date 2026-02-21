@@ -19,7 +19,7 @@ document.addEventListener('DOMContentLoaded', function() {
         implicationEdges: document.getElementById('show-implication-edges'),
         monotonicEdges: document.getElementById('show-monotonic-edges'),
         antimonotonicEdges: document.getElementById('show-antimonotonic-edges'),
-        mixedEdges: document.getElementById('show-mixed-edges')
+        neitherEdges: document.getElementById('show-neither-edges')
     };
     
     // Filter controls
@@ -152,7 +152,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Set default edge type visibility
     if (edgeCheckboxes.monotonicEdges) edgeCheckboxes.monotonicEdges.checked = true;
     if (edgeCheckboxes.antimonotonicEdges) edgeCheckboxes.antimonotonicEdges.checked = true;
-    if (edgeCheckboxes.mixedEdges) edgeCheckboxes.mixedEdges.checked = true;
+    if (edgeCheckboxes.neitherEdges) edgeCheckboxes.neitherEdges.checked = true;
     
     // Set default edge direction
     edgeDirectionRadios.forEach(function(radio) {

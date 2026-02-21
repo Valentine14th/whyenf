@@ -36,17 +36,18 @@ def build_edge_controls_html(mode, has_definitions):
         controls.append('<div style="font-size: 11px; color: #555; margin-top: 10px; margin-bottom: 5px; font-weight: 600;">Filter by Monotonicity:</div>')
         controls.append(create_edge_control("show-monotonic-edges", "Monotonic Edges", "#27ae60"))
         controls.append(create_edge_control("show-antimonotonic-edges", "Antimonotonic Edges", "#e67e22"))
-        controls.append(create_edge_control("show-mixed-edges", "Mixed Monotonicity Edges", "#9b59b6"))
+        controls.append(create_edge_control("show-neither-edges", "Neither Monotonicity Edges", "#9b59b6"))
     
     return '\n                '.join(controls)
 
 
-def build_checkbox_items_html(node_ids, sccs=None):
+def build_checkbox_items_html(node_ids, sccs=None, node_id_to_label=None):
     """Build checkbox items HTML for node selection.
     
     Args:
         node_ids: List of individual node IDs
         sccs: Optional list of SCCs (each SCC is a list of node IDs)
+        node_id_to_label: Optional dict mapping node IDs to display labels
     """
     items = []
     
@@ -70,12 +71,11 @@ def build_checkbox_items_html(node_ids, sccs=None):
     
     # Add individual node checkboxes
     for node_id in node_ids:
-        # Format display name from node ID (matches GraphNodes.getNodeDisplayName in frontend)
-        if node_id.startswith('RULE_'):
-            display_name = f"Rule {node_id[5:]}"
-        elif node_id.startswith('LET_'):
-            display_name = node_id[4:]
+        # Use display label if provided, otherwise format from node ID
+        if node_id_to_label and node_id in node_id_to_label:
+            display_name = node_id_to_label[node_id]
         else:
+            # Fallback to simple formatting
             display_name = node_id
         
         items.append(
