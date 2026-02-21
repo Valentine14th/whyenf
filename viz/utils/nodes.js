@@ -10,8 +10,6 @@ const GraphNodes = (function() {
     function getNodeDisplayName(nodeId) {
         if (nodeId.startsWith('RULE_')) {
             return 'Rule ' + nodeId.substring(5);
-        } else if (nodeId.startsWith('LET_')) {
-            return nodeId.substring(4);
         }
         return nodeId;
     }
@@ -23,8 +21,7 @@ const GraphNodes = (function() {
         nodeNames.forEach(nodeName => {
             const matches = allNodes.filter(node => 
                 node.label === nodeName || 
-                node.id === nodeName || 
-                node.id === 'LET_' + nodeName
+                node.id === nodeName
             );
             matches.forEach(m => matchingIds.add(m.id));
         });

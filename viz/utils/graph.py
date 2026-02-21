@@ -523,16 +523,6 @@ def filter_polarity_edges(net, expanded_rules):
     return removed_count
 
 
-def get_node_id(pred_name, let_definition_names):
-    """Return the correct node ID (LET node or predicate node)."""
-    return f"LET_{pred_name}" if pred_name in let_definition_names else pred_name
-
-
-def extract_node_name(node_id):
-    """Extract node name without LET_ prefix."""
-    return node_id[4:] if node_id.startswith('LET_') else node_id
-
-
 def format_scc_label(scc_nodes, strip_prefix=False, node_labels=None):
     """Format SCC label showing nodes.
     
@@ -748,7 +738,7 @@ def compute_backward_partitions(net, node_labels):
         anchor_scc_nodes = sccs_lists[leaf_scc_idx]
         if len(anchor_scc_nodes) <= 1:
             node_id = sorted(anchor_scc_nodes)[0]
-            partition_labels[leaf_scc_idx] = node_labels.get(node_id, extract_node_name(node_id))
+            partition_labels[leaf_scc_idx] = node_labels.get(node_id, node_id)
         else:
             partition_labels[leaf_scc_idx] = format_scc_label(anchor_scc_nodes, node_labels=node_labels)
     

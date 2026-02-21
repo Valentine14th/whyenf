@@ -29,31 +29,6 @@ def extract_predicates(node, predicates_set=None):
     return predicates_set
 
 
-def extract_let_definitions(node, definitions=None):
-    """Extract all LET definitions with their predicates."""
-    if definitions is None:
-        definitions = []
-    
-    if not isinstance(node, dict):
-        return definitions
-    
-    if node.get("constructor") == "Let":
-        definitions.append({
-            "name": node.get("name", "Unknown"),
-            "type": node.get("type", ""),
-            "predicates": extract_predicates(node.get("body", {}))
-        })
-        # Continue in the "in" clause
-        extract_let_definitions(node.get("in"), definitions)
-    else:
-        # Recursively search in all dict/list values
-        for value in node.values():
-            if isinstance(value, (dict, list)):
-                extract_let_definitions(value, definitions)
-    
-    return definitions
-
-
 def extract_let_definitions_normal(lets_array):
     """Extract LET definitions from normal JSON format (from 'lets' array).
     
@@ -74,33 +49,6 @@ def extract_let_definitions_normal(lets_array):
         definitions_dict[definition["name"]] = definition
     
     return definitions_dict
-
-
-def extract_implications(node, implications=None):
-    """Extract all implications (Imp) from formula with predicates on left and right."""
-    if implications is None:
-        implications = []
-    
-    if isinstance(node, list):
-        for item in node:
-            extract_implications(item, implications)
-        return implications
-    
-    if not isinstance(node, dict):
-        return implications
-    
-    if node.get("constructor") == "Imp":
-        implications.append({
-            "left": extract_predicates(node.get("left", {})),
-            "right": extract_predicates(node.get("right", {}))
-        })
-    
-    # Recursively search in all dict/list values
-    for value in node.values():
-        if isinstance(value, (dict, list)):
-            extract_implications(value, implications)
-    
-    return implications
 
 
 def extract_top_level_rules(instrs):
@@ -148,35 +96,5 @@ def extract_top_level_rules(instrs):
                     "label": label
                 }
                 rules.append(rule)
-    
-    return rules
-
-
-def extract_causality_rules(node, rules=None):
-    """Extract all CauByCau and CauBySup rules with predicates from filter and effects."""
-    if rules is None:
-        rules = []
-    
-    if isinstance(node, list):
-        for item in node:
-            extract_causality_rules(item, rules)
-        return rules
-    
-    if not isinstance(node, dict):
-        return rules
-    
-    constructor = node.get("constructor")
-    if constructor in ["CauByCau", "CauBySup"]:
-        by_field = node.get("by", {})
-        rules.append({
-            "type": constructor,
-            "filter": extract_predicates(by_field.get("filter", {})),
-            "effects": extract_predicates(by_field.get("effects", {}))
-        })
-    
-    # Recursively search in all dict/list values
-    for value in node.values():
-        if isinstance(value, (dict, list)):
-            extract_causality_rules(value, rules)
     
     return rules
