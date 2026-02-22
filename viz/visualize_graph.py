@@ -6,7 +6,9 @@ Each predicate node is used only once and reused across different definitions.
 
 import json
 import os
+import shutil
 import argparse
+import re
 from pyvis.network import Network
 import networkx as nx
 
@@ -21,20 +23,33 @@ from utils.html import (
     build_edge_controls_html, build_checkbox_items_html, build_partition_controls_html,
     load_and_populate_template, inject_widget_into_graph_html, configure_isolated_node_physics
 )
+from utils.mfotl_parser import generate_partition_mfotl_files
 
 
-def create_graph(json_file, output_file, filter_polarity=False, merge_strategy=None):
+def create_graph(json_file, output_file, filter_polarity=False, merge_strategy=None, mfotl_file=None, output_dir='partition_output'):
     """Create PyVis graph from formula JSON showing causality rules.
     
     Args:
         json_file: Path to input JSON file
-        output_file: Path to output HTML file
+        output_file: Path to output HTML file (basename only, will be placed in output_dir)
         filter_polarity: Whether to filter polarity edges
         merge_strategy: Partition merging strategy ('by_descendants' or 'no_merge') - required
+        mfotl_file: Optional path to MFOTL file for generating partition files
+        output_dir: Directory where all output files will be saved (default: 'partition_output')
     """
     
     if merge_strategy is None:
         raise ValueError("merge_strategy is required")
+    
+    # Delete output directory if it exists to ensure clean run
+    if os.path.exists(output_dir):
+        shutil.rmtree(output_dir)
+    
+    # Create fresh output directory
+    os.makedirs(output_dir)
+    
+    # Construct full output path
+    full_output_path = os.path.join(output_dir, os.path.basename(output_file))
     
     # Load JSON
     with open(json_file, 'r') as f:
@@ -80,7 +95,7 @@ def create_graph(json_file, output_file, filter_polarity=False, merge_strategy=N
     )
     
     # Save the graph
-    net.save_graph(output_file)
+    net.save_graph(full_output_path)
     
     # Prepare data for HTML template
     # Create mapping of node IDs to display labels for checkboxes
@@ -114,11 +129,16 @@ def create_graph(json_file, output_file, filter_polarity=False, merge_strategy=N
     )
     
     # Inject widget into generated graph HTML
-    inject_widget_into_graph_html(output_file, widget_html)
+    inject_widget_into_graph_html(full_output_path, widget_html)
     
-    print(f"Graph saved to {output_file}")
+    print(f"Graph saved to {full_output_path}")
     
-    return output_file
+    # Generate minimal MFOTL files for each partition if MFOTL file is provided
+    if mfotl_file:
+        base_name = os.path.splitext(os.path.basename(mfotl_file))[0]
+        generate_partition_mfotl_files(mfotl_file, partitions, partition_labels, rules, output_dir, base_name)
+    
+    return full_output_path
 
 
 if __name__ == "__main__":
@@ -127,7 +147,10 @@ if __name__ == "__main__":
         formatter_class=argparse.RawTextHelpFormatter
     )
     parser.add_argument('input', help='Input JSON file')
-    parser.add_argument('output', help='Output HTML file (will be created in viz/ directory)')
+    parser.add_argument('output', help='Output HTML file (basename only, will be placed in output directory)')
+    parser.add_argument('--output-dir', type=str, default='partition_output',
+                       help='Output directory for all generated files (default: partition_output)')
+    parser.add_argument('--mfotl', type=str, help='Path to MFOTL file for generating partition files')
     parser.add_argument('--filter-polarity', action='store_true',
                        help='Filter out polarity edges (CauByCau+monotonic, CauBySup+antimonotonic)')
     parser.add_argument('--merge-strategy', type=str, required=True,
@@ -139,11 +162,8 @@ if __name__ == "__main__":
                     ''')
     args = parser.parse_args()
     
-    # Force output to be in viz directory
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    output_basename = os.path.basename(args.output)
-    output_path = os.path.join(script_dir, output_basename)
-    
-    create_graph(args.input, output_path, 
+    create_graph(args.input, args.output, 
                 filter_polarity=args.filter_polarity,
-                merge_strategy=args.merge_strategy)
+                merge_strategy=args.merge_strategy,
+                mfotl_file=args.mfotl,
+                output_dir=args.output_dir)

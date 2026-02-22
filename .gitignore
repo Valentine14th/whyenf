@@ -34,3 +34,4 @@ docs/*/*/*.el
 *.secret
 ressources/
 viz/lib/
+partition_output/
