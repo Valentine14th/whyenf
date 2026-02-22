@@ -4,6 +4,7 @@ Utilities for building and manipulating the graph structure.
 
 import networkx as nx
 from .config import NODE_COLORS, EDGE_COLORS
+from .merge import apply_merge_strategy
 
 
 def format_rule_label(rule_label):
@@ -696,12 +697,18 @@ def _print_common_nodes(partitions, partition_labels, node_labels=None):
     else:
         print("  No nodes are common to all partitions.\n")
 
-def compute_backward_partitions(net, node_labels):
+def compute_backward_partitions(net, node_labels, merge_strategy='by_descendants'):
     """
     Compute backward-reachable partitions from leaves (NOT successor-closed).
     
     Each partition includes only nodes that can reach a leaf node (node with no outgoing 
     edges). Also marks nodes in leaf/source SCCs.
+    
+    Args:
+        net: PyVis network
+        node_labels: Dict mapping node IDs to display labels
+        merge_strategy: Name of the merging strategy to use (default: 'by_descendants')
+                       Available: 'by_descendants', 'no_merge'
     
     Returns:
         - sccs_nontrivial: List of non-trivial SCCs (size > 1) 
@@ -741,9 +748,9 @@ def compute_backward_partitions(net, node_labels):
         else:
             partition_labels[leaf_scc_idx] = format_scc_label(anchor_scc_nodes, node_labels=node_labels)
     
-    # Merge partitions with identical node sets
-    merged_partitions, merged_labels = _merge_partitions(
-        partitions, partition_labels, sccs_lists
+    # Merge partitions with specified strategy
+    merged_partitions, merged_labels, strategy_name = apply_merge_strategy(
+        partitions, partition_labels, sccs_lists, strategy=merge_strategy
     )
     
     # Filter SCCs to only non-trivial ones (size > 1) 
@@ -758,7 +765,7 @@ def compute_backward_partitions(net, node_labels):
     stats = {
         'initial_count': len(partitions),
         'merged_count': len(merged_partitions),
-        'strategy': 'Merge if same nodes (excluding leaves)'
+        'strategy': strategy_name
     }
     
     # Mark nodes in leaf/source SCCs

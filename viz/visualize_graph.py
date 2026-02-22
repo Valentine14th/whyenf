@@ -23,8 +23,18 @@ from utils.html import (
 )
 
 
-def create_graph(json_file, output_file, filter_polarity=False):
-    """Create PyVis graph from formula JSON showing causality rules."""
+def create_graph(json_file, output_file, filter_polarity=False, merge_strategy=None):
+    """Create PyVis graph from formula JSON showing causality rules.
+    
+    Args:
+        json_file: Path to input JSON file
+        output_file: Path to output HTML file
+        filter_polarity: Whether to filter polarity edges
+        merge_strategy: Partition merging strategy ('by_descendants' or 'no_merge') - required
+    """
+    
+    if merge_strategy is None:
+        raise ValueError("merge_strategy is required")
     
     # Load JSON
     with open(json_file, 'r') as f:
@@ -65,7 +75,9 @@ def create_graph(json_file, output_file, filter_polarity=False):
     configure_isolated_node_physics(net)
     
     # Compute backward-reachable partitions and mark source/leaf SCCs
-    nontrivial_sccs, node_to_scc_map, partitions, partition_labels, stats, leaf_nodes, source_nodes = compute_backward_partitions(net, node_id_to_label)
+    nontrivial_sccs, node_to_scc_map, partitions, partition_labels, stats, leaf_nodes, source_nodes = compute_backward_partitions(
+        net, node_id_to_label, merge_strategy=merge_strategy
+    )
     
     # Save the graph
     net.save_graph(output_file)
@@ -115,6 +127,9 @@ if __name__ == "__main__":
     parser.add_argument('output', help='Output HTML file (will be created in viz/ directory)')
     parser.add_argument('--filter-polarity', action='store_true',
                        help='Filter out polarity edges (CauByCau+monotonic, CauBySup+antimonotonic)')
+    parser.add_argument('--merge-strategy', type=str, required=True,
+                       choices=['by_descendants', 'no_merge'],
+                       help='Partition merging strategy (required)')
     
     args = parser.parse_args()
     
@@ -123,4 +138,6 @@ if __name__ == "__main__":
     output_basename = os.path.basename(args.output)
     output_path = os.path.join(script_dir, output_basename)
     
-    create_graph(args.input, output_path, filter_polarity=args.filter_polarity)
+    create_graph(args.input, output_path, 
+                filter_polarity=args.filter_polarity,
+                merge_strategy=args.merge_strategy)
