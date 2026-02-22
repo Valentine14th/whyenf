@@ -31,13 +31,13 @@ const GraphRankings = (function() {
             .map(node => ({ id: node.id, label: node.label, count: outgoingCounts[node.id] }))
             .filter(item => item.count > 0)
             .sort((a, b) => b.count - a.count)
-            .slice(0, 15);
+            .slice(0, 5);
         
         const sortedByInbound = visibleNodes
             .map(node => ({ id: node.id, label: node.label, count: inboundCounts[node.id] }))
             .filter(item => item.count > 0)
             .sort((a, b) => b.count - a.count)
-            .slice(0, 15);
+            .slice(0, 5);
         
         // Render rankings
         renderRanking(outgoingRanking, sortedByOutgoing, selectedNodes, checkboxes);

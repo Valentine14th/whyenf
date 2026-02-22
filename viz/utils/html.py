@@ -5,7 +5,7 @@ Utilities for generating HTML components and templates.
 import os
 import json
 from jinja2 import Template
-from .graph import format_scc_label
+from .graph import format_scc_label, format_rule_label
 
 
 def configure_isolated_node_physics(net):
@@ -98,7 +98,7 @@ def build_checkbox_items_html(node_ids, sccs=None, node_id_to_label=None):
     # Add SCC groups first if provided
     if sccs:
         for i, scc in enumerate(sccs):
-            display_name = format_scc_label(scc, strip_prefix=True)
+            display_name = format_scc_label(scc, strip_prefix=False, node_labels=node_id_to_label)
             
             # Store the SCC nodes as a data attribute
             scc_nodes_json = json.dumps(sorted(scc))
@@ -117,7 +117,7 @@ def build_checkbox_items_html(node_ids, sccs=None, node_id_to_label=None):
     for node_id in node_ids:
         # Use display label if provided, otherwise format from node ID
         if node_id_to_label and node_id in node_id_to_label:
-            display_name = node_id_to_label[node_id]
+            display_name = format_rule_label(node_id_to_label[node_id])
         else:
             # Fallback to simple formatting
             display_name = node_id
@@ -151,7 +151,7 @@ def build_partition_controls_html(partitions, partition_labels):
 def load_and_populate_template(template_file, edge_controls_html, checkbox_items_html, 
                                leaf_nodes_json, source_nodes_json,
                                scc_map_json, sccs_json, partitions_json, partition_labels_json,
-                               partition_controls_html, stats_json, filter_polarity=False):
+                               partition_controls_html, stats_json, filter_polarity=False, node_id_to_label_json='{}'):
     """Load HTML template and replace placeholders with generated content."""
     with open(template_file, 'r') as f:
         template_content = f.read()
@@ -169,7 +169,8 @@ def load_and_populate_template(template_file, edge_controls_html, checkbox_items
         partitions_json=partitions_json,
         partition_labels_json=partition_labels_json,
         stats_json=stats_json,
-        filter_polarity=filter_polarity
+        filter_polarity=filter_polarity,
+        node_id_to_label_json=node_id_to_label_json
     )
 
     return widget_html

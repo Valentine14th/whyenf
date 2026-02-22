@@ -83,6 +83,7 @@ def create_graph(json_file, output_file, filter_polarity=False):
     partitions_json = json.dumps({str(k): list(v) for k, v in partitions.items()})
     partition_labels_json = json.dumps({str(k): v for k, v in partition_labels.items()})
     stats_json = json.dumps(stats)
+    node_id_to_label_json = json.dumps(node_id_to_label)
     
     # Load template and generate HTML components
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -97,7 +98,7 @@ def create_graph(json_file, output_file, filter_polarity=False):
         template_file, edge_controls_html, checkbox_items_html,
         leaf_node_names_json, source_node_names_json,
         node_to_scc_map_json, nontrivial_sccs_json, partitions_json, partition_labels_json,
-        partition_controls_html, stats_json, filter_polarity
+        partition_controls_html, stats_json, filter_polarity, node_id_to_label_json
     )
     
     # Inject widget into generated graph HTML

@@ -244,9 +244,26 @@ def merge_events_by_base(events: list, is_effect: bool = False) -> list:
     # Merge each group
     merged = []
     for (base_name, eff_type), items in groups.items():
+        # Build display name showing all chains (always use [via ...] format if chains exist)
+        chains = []
+        for name, _, _ in items:
+            if '>' in name:
+                # Extract the chain prefix (everything before the last >)
+                chain = name.rsplit('>', 1)[0]
+                chains.append(chain)
+            # Skip direct events - they have no chain
+        
+        # Create display name with [via ...] format if chains exist
+        if chains:
+            chains_str = ', '.join(sorted(set(chains)))  # Deduplicate and sort chains
+            display_name = f"{base_name} [via {chains_str}]"
+        else:
+            # All are direct events, no chain info needed
+            display_name = base_name
+        
         if len(items) == 1:
-            # No merging needed - add base_name to tuple
-            display_name, polarity, effect_type = items[0]
+            # No merging needed for polarity
+            _, polarity, effect_type = items[0]
             merged.append((display_name, base_name, polarity, effect_type))
         else:
             # Combine polarities
@@ -257,24 +274,6 @@ def merge_events_by_base(events: list, is_effect: bool = False) -> list:
             # Skip if combined polarity is Irrelevant (for filters)
             if not is_effect and combined_polarity == 'Irrelevant':
                 continue
-            
-            # Build display name showing all chains
-            chains = []
-            for name, _, _ in items:
-                if '>' in name:
-                    # Extract the chain prefix (everything before the last >)
-                    chain = name.rsplit('>', 1)[0]
-                    chains.append(chain)
-                # Skip direct events - they have no chain
-            
-            # Create merged display name
-            if chains:
-                # Multiple chains - use [via ...] format
-                chains_str = ', '.join(chains)
-                display_name = f"{base_name} [via {chains_str}]"
-            else:
-                # All are direct events, no chain info needed
-                display_name = base_name
             
             merged.append((display_name, base_name, combined_polarity, eff_type))
     
@@ -532,14 +531,14 @@ def format_scc_label(scc_nodes, strip_prefix=False, node_labels=None):
         node_labels: Optional dict mapping node IDs to display labels
     
     Returns:
-        Formatted string like "SCC [RULE_5, RULE_8, RULE_12]" or 
-        "SCC [RULE_5, RULE_8, RULE_12, ... 7 nodes]"
+        Formatted string
     """
     sorted_nodes = sorted(scc_nodes)
     
     # Use node labels if provided, otherwise use node IDs
     if node_labels:
-        display_nodes = [node_labels.get(n, n) for n in sorted_nodes]
+        # Format labels 
+        display_nodes = [format_rule_label(node_labels.get(n, n)) for n in sorted_nodes]
     elif strip_prefix:
         display_nodes = [n.replace('RULE_', '') for n in sorted_nodes]
     else:

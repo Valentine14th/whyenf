@@ -35,12 +35,23 @@ const GraphSCC = (function() {
             const clusterId = `scc-${i}`;
             sccClusters[i] = clusterId;
             
+            // Get node labels for visible nodes
+            const nodeLabels = visibleNodesInScc.map(nodeId => {
+                const label = window.nodeIdToLabel && window.nodeIdToLabel[nodeId];
+                if (label) {
+                    // Format the label - extract just filename and location
+                    const parts = label.split('/');
+                    return parts[parts.length - 1] || label;
+                }
+                return nodeId;
+            });
+            
             const clusterOptions = {
                 joinCondition: (nodeOptions) => scc.includes(nodeOptions.id) && !nodeOptions.hidden,
                 clusterNodeProperties: {
                     id: clusterId,
                     label: `SCC ${i + 1} (${visibleNodesInScc.length} nodes)`,
-                    title: `SCC ${i + 1}\nNodes\n: ${visibleNodesInScc.join(',\n')}`,
+                    title: `SCC ${i + 1}\nNodes:\n${nodeLabels.join('\n')}`,
                     shape: 'box',
                     color: '#f0ad4e',
                     borderWidth: 2,
