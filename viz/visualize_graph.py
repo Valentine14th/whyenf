@@ -19,7 +19,7 @@ from utils.graph import (
 )
 from utils.html import (
     build_edge_controls_html, build_checkbox_items_html, build_partition_controls_html,
-    load_and_populate_template, inject_widget_into_graph_html
+    load_and_populate_template, inject_widget_into_graph_html, configure_isolated_node_physics
 )
 
 
@@ -60,6 +60,9 @@ def create_graph(json_file, output_file, filter_polarity=False):
     # Filter polarity edges if requested
     if filter_polarity:
         removed_count = filter_polarity_edges(net, expanded_rules)
+    
+    # Configure isolated nodes with low mass for peripheral positioning
+    configure_isolated_node_physics(net)
     
     # Compute backward-reachable partitions and mark source/leaf SCCs
     nontrivial_sccs, node_to_scc_map, partitions, partition_labels, stats, leaf_nodes, source_nodes = compute_backward_partitions(net, node_id_to_label)

@@ -18,7 +18,8 @@ document.addEventListener('DOMContentLoaded', function() {
         letEdges: document.getElementById('show-let-edges'),
         monotonicEdges: document.getElementById('show-monotonic-edges'),
         antimonotonicEdges: document.getElementById('show-antimonotonic-edges'),
-        neitherEdges: document.getElementById('show-neither-edges')
+        neitherEdges: document.getElementById('show-neither-edges'),
+        isolatedNodes: document.getElementById('show-isolated-nodes')
     };
     
     // Filter controls
@@ -58,14 +59,16 @@ document.addEventListener('DOMContentLoaded', function() {
         var updateRankingsCallback = function() {
             GraphRankings.updateRankings(network, selectedNodes, checkboxes, isEdgeHidden);
         };
-        GraphHighlighting.highlightNodes(network, selectedPartitions, selectedNodes, partitions, filterModeRadios, edgeDirectionRadios, isEdgeHidden, searchResults, checkboxes, updateRankingsCallback);
+        var showIsolatedNodes = edgeCheckboxes.isolatedNodes ? edgeCheckboxes.isolatedNodes.checked : true;
+        GraphHighlighting.highlightNodes(network, selectedPartitions, selectedNodes, partitions, filterModeRadios, edgeDirectionRadios, isEdgeHidden, searchResults, checkboxes, updateRankingsCallback, showIsolatedNodes);
     };
     
     var handleEdgeVisibilityUpdate = function() {
         var updateRankingsCallback = function() {
             GraphRankings.updateRankings(network, selectedNodes, checkboxes, isEdgeHidden);
         };
-        GraphEdges.handleEdgeVisibilityUpdate(network, selectedPartitions, selectedNodes, partitions, isEdgeHidden, highlightNodes, updateRankingsCallback);
+        var showIsolatedNodes = edgeCheckboxes.isolatedNodes ? edgeCheckboxes.isolatedNodes.checked : true;
+        GraphEdges.handleEdgeVisibilityUpdate(network, selectedPartitions, selectedNodes, partitions, isEdgeHidden, highlightNodes, updateRankingsCallback, showIsolatedNodes);
     };
     
     var updateFilterModeControls = function() {
@@ -152,6 +155,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (edgeCheckboxes.monotonicEdges) edgeCheckboxes.monotonicEdges.checked = true;
     if (edgeCheckboxes.antimonotonicEdges) edgeCheckboxes.antimonotonicEdges.checked = true;
     if (edgeCheckboxes.neitherEdges) edgeCheckboxes.neitherEdges.checked = true;
+    if (edgeCheckboxes.isolatedNodes) edgeCheckboxes.isolatedNodes.checked = true;
     
     // Set default edge direction
     edgeDirectionRadios.forEach(function(radio) {

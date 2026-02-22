@@ -12,13 +12,13 @@ const GraphEdges = (function() {
         return false;
     }
 
-    function handleEdgeVisibilityUpdate(network, selectedPartitions, selectedNodes, partitions, isEdgeHidden, highlightCallback, updateRankingsCallback) {
+    function handleEdgeVisibilityUpdate(network, selectedPartitions, selectedNodes, partitions, isEdgeHidden, highlightCallback, updateRankingsCallback, showIsolatedNodes) {
         // If partitions are selected, apply partition filter first
         if (selectedPartitions.size > 0) {
             GraphPartitions.applyPartitionFilter(network, selectedPartitions, partitions, isEdgeHidden);
         }
         
-        GraphFilters.updateEdgeVisibility(network, selectedNodes, isEdgeHidden, highlightCallback);
+        GraphFilters.updateEdgeVisibility(network, selectedNodes, isEdgeHidden, highlightCallback, showIsolatedNodes);
         updateRankingsCallback();
     }
     

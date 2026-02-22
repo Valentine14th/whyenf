@@ -8,6 +8,52 @@ from jinja2 import Template
 from .graph import format_scc_label
 
 
+def configure_isolated_node_physics(net):
+    """Configure physics for isolated nodes (nodes with no edges).
+    
+    Identifies nodes with no incoming or outgoing edges, positions them
+    around the periphery. 
+    Workaround because PyVis does not visually handle isolated nodes well by default. 
+    
+    Args:
+        net: PyVis network with nodes and edges already added
+    
+    Returns:
+        Number of isolated nodes configured
+    """
+    import math
+    
+    # Build a set of nodes that have at least one edge
+    nodes_with_edges = set()
+    for edge in net.edges:
+        nodes_with_edges.add(edge['from'])
+        nodes_with_edges.add(edge['to'])
+    
+    # Find isolated nodes
+    isolated_nodes = []
+    for node in net.nodes:
+        if node['id'] not in nodes_with_edges:
+            isolated_nodes.append(node)
+    
+    if not isolated_nodes:
+        return 0
+    
+    # Position isolated nodes in a circle at the periphery
+    # This gives them a starting position far from the center
+    radius = 3000
+    angle_step = 2 * math.pi / len(isolated_nodes)
+    
+    for i, node in enumerate(isolated_nodes):
+        angle = i * angle_step
+        # Place around a circle
+        node['x'] = radius * math.cos(angle)
+        node['y'] = radius * math.sin(angle)
+    
+    print(f"\nConfigured {len(isolated_nodes)} isolated nodes positioned at periphery (radius={radius})")
+    
+    return len(isolated_nodes)
+
+
 def create_edge_control(control_id, label, color, checked=True):
     """Create a single edge control HTML element."""
     checked_attr = ' checked' if checked else ''
@@ -31,6 +77,10 @@ def build_edge_controls_html(has_definitions):
     controls.append(create_edge_control("show-monotonic-edges", "Monotonic Edges", "#27ae60"))
     controls.append(create_edge_control("show-antimonotonic-edges", "Antimonotonic Edges", "#e67e22"))
     controls.append(create_edge_control("show-neither-edges", "Neither Monotonicity Edges", "#9b59b6"))
+    
+    # Isolated nodes
+    controls.append('<div style="font-size: 11px; color: #555; margin-top: 10px; margin-bottom: 5px; font-weight: 600;">Node Visibility:</div>')
+    controls.append(create_edge_control("show-isolated-nodes", "Show Isolated Nodes", "#95a5a6"))
     
     return '\n                '.join(controls)
 

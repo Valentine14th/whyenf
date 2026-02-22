@@ -6,7 +6,7 @@
 var GraphHighlighting = (function() {
     'use strict';
     
-    function highlightNodes(network, selectedPartitions, selectedNodes, partitions, filterModeRadios, edgeDirectionRadios, isEdgeHidden, searchResults, checkboxes, updateRankingsCallback) {
+    function highlightNodes(network, selectedPartitions, selectedNodes, partitions, filterModeRadios, edgeDirectionRadios, isEdgeHidden, searchResults, checkboxes, updateRankingsCallback, showIsolatedNodes) {
         // If partitions are selected, let partition filter handle visibility
         if (selectedPartitions.size > 0) {
             var filterMode = GraphFilters.getSelectedFilterMode(filterModeRadios);
@@ -24,7 +24,7 @@ var GraphHighlighting = (function() {
         if (selectedNodes.size === 0) {
             network.selectNodes([]);
             searchResults.textContent = '';
-            GraphFilters.updateEdgeVisibility(network, selectedNodes, isEdgeHidden, function() {});
+            GraphFilters.updateEdgeVisibility(network, selectedNodes, isEdgeHidden, function() {}, showIsolatedNodes);
             updateRankingsCallback();
             GraphSCC.refreshSccs(network, sccs);
             return;
@@ -42,7 +42,7 @@ var GraphHighlighting = (function() {
         var result;
         
         if (filterMode === 'exclude') {
-            result = GraphFilters.applyExcludeMode(network, matchingIds, isEdgeHidden);
+            result = GraphFilters.applyExcludeMode(network, matchingIds, isEdgeHidden, showIsolatedNodes);
             result.mode = 'exclude';
         } else {
             var edgeDirection = GraphFilters.getSelectedEdgeDirection(edgeDirectionRadios);
