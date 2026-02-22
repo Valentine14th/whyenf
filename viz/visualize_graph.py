@@ -122,15 +122,21 @@ def create_graph(json_file, output_file, filter_polarity=False, merge_strategy=N
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Generate PyVis graph from MFOTL formula JSON')
+    parser = argparse.ArgumentParser(
+        description='Generate PyVis graph from MFOTL formula JSON',
+        formatter_class=argparse.RawTextHelpFormatter
+    )
     parser.add_argument('input', help='Input JSON file')
     parser.add_argument('output', help='Output HTML file (will be created in viz/ directory)')
     parser.add_argument('--filter-polarity', action='store_true',
                        help='Filter out polarity edges (CauByCau+monotonic, CauBySup+antimonotonic)')
     parser.add_argument('--merge-strategy', type=str, required=True,
                        choices=['by_descendants', 'no_merge'],
-                       help='Partition merging strategy (required)')
-    
+                       help='''Partition merging strategy (required):
+  no_merge       - Keep all partitions separate without any merging.
+  by_descendants - Merge partitions with identical descendant nodes
+                   (excluding anchor leaf nodes). 
+                    ''')
     args = parser.parse_args()
     
     # Force output to be in viz directory
