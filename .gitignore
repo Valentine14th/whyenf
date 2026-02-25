@@ -35,3 +35,4 @@ docs/*/*/*.el
 ressources/
 viz/lib/
 partition_output/
+tests/partition/results

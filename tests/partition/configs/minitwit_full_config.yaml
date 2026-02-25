@@ -1,0 +1,29 @@
+# Workflow name (used for logging/output identification)
+name: "minitwit_full"
+
+# Input files
+input:
+  mfotl: "ressources/minitwit/minitwit_gdpr_4.mfotl"
+  signature: "ressources/minitwit/minitwit_gdpr.sig"
+  log: "ressources/minitwit/minitwit_gdpr.log"
+  functions: "ressources/gdpr.py"
+
+# Output configuration
+output:
+  directory: "tests/partition/results/minitwit_full_output"
+  graph_html: "graph.html"
+  save_json: true
+  workflow_log: "workflow.log"
+  enforcement_results: "enforcement_results.txt"
+
+# Visualization & partitioning options
+visualization:
+  enabled: true
+  filter_polarity: true
+  merge_strategy: "by_descendants"
+
+# Partition execution options (running enfguard on each partition)
+partition_execution:
+  enabled: true
+  timeout: 300
+  partition_dir: null

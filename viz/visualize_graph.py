@@ -41,12 +41,8 @@ def create_graph(json_file, output_file, filter_polarity=False, merge_strategy=N
     if merge_strategy is None:
         raise ValueError("merge_strategy is required")
     
-    # Delete output directory if it exists to ensure clean run
-    if os.path.exists(output_dir):
-        shutil.rmtree(output_dir)
-    
-    # Create fresh output directory
-    os.makedirs(output_dir)
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
     
     # Construct full output path
     full_output_path = os.path.join(output_dir, os.path.basename(output_file))

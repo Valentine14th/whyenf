@@ -1,0 +1,61 @@
+# Partition Enforcement Configuration File
+# This config defines a workflow for partitioning MFOTL formulas and running enforcement
+
+# Workflow name (used for logging/output identification)
+name: "minitwit_gdpr_4_test"
+
+# Input files
+input:
+  # MFOTL formula file
+  mfotl: "ressources/minitwit/minitwit_gdpr_4.mfotl"
+  
+  # Signature file (defines predicates and their types)
+  signature: "ressources/minitwit/minitwit_gdpr.sig"
+  
+  # Log file for enforcement execution
+  log: "ressources/minitwit/log.txt"
+  
+  # Functions file for enforcement execution
+  functions: "ressources/minitwit/func.txt"
+
+# Output configuration
+output:
+  # Base directory for all outputs (graph, JSON, partition MFOTL files)
+  directory: "partition_output"
+  
+  # Name of the output HTML graph file
+  graph_html: "graph.html"
+  
+  # Whether to save the intermediate JSON file (generated from MFOTL)
+  save_json: true
+  
+  # Log file for the workflow execution
+  workflow_log: "workflow.log"
+  
+  # Detailed results file for partition enforcement (timing, success/failure)
+  enforcement_results: "enforcement_results.txt"
+
+# Visualization & partitioning options
+visualization:
+  # Enable/disable graph generation and partitioning
+  enabled: true
+  
+  # Filter out polarity edges (CauByCau+monotonic, CauBySup+antimonotonic)
+  filter_polarity: false
+  
+  # Partition merging strategy
+  # Options: "by_descendants" | "no_merge"
+  merge_strategy: "by_descendants"
+
+# Partition execution options (running enfguard on each partition)
+partition_execution:
+  # Enable/disable running enfguard on partitions
+  enabled: true
+  
+  # Optional: Timeout in seconds for each partition
+  # If a partition takes longer than this, it will be killed
+  timeout: 300
+  
+  # Directory containing partition MFOTL files (auto-set from output.directory/mfotl)
+  # Leave null to use default: {output.directory}/mfotl
+  partition_dir: null
