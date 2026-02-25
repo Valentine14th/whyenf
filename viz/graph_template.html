@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Graph Visualization</title>
-    <link rel="stylesheet" href="graph_widgets.css">
+    <style>{{ inlined_css }}</style>
 </head>
 <body>
     <div id="search-container">
@@ -129,14 +129,14 @@
         var partitions = graphData.partitions;
         var partitionLabels = graphData.partitionLabels;
     </script>
-    <script src="utils/edges.js"></script>
-    <script src="utils/nodes.js"></script>
-    <script src="utils/filters.js"></script>
-    <script src="utils/rankings.js"></script>
-    <script src="utils/scc.js"></script>
-    <script src="utils/partitions.js"></script>
-    <script src="utils/ui_state.js"></script>
-    <script src="utils/highlighting.js"></script>
-    <script src="graph_widgets.js"></script>
+    <script>{{ inlined_js_edges }}</script>
+    <script>{{ inlined_js_nodes }}</script>
+    <script>{{ inlined_js_filters }}</script>
+    <script>{{ inlined_js_rankings }}</script>
+    <script>{{ inlined_js_scc }}</script>
+    <script>{{ inlined_js_partitions }}</script>
+    <script>{{ inlined_js_ui_state }}</script>
+    <script>{{ inlined_js_highlighting }}</script>
+    <script>{{ inlined_js_widgets }}</script>
 </body>
 </html>

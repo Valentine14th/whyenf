@@ -152,9 +152,38 @@ def load_and_populate_template(template_file, edge_controls_html, checkbox_items
                                leaf_nodes_json, source_nodes_json,
                                scc_map_json, sccs_json, partitions_json, partition_labels_json,
                                partition_controls_html, stats_json, filter_polarity=False, node_id_to_label_json='{}'):
-    """Load HTML template and replace placeholders with generated content."""
+    """Load HTML template and replace placeholders with generated content.
+    
+    Reads and inlines all CSS and JS files to create a self-contained HTML output.
+    """
     with open(template_file, 'r') as f:
         template_content = f.read()
+    
+    # Get the viz directory path
+    viz_dir = os.path.dirname(template_file)
+    
+    # Read and inline CSS
+    css_file = os.path.join(viz_dir, 'graph_widgets.css')
+    with open(css_file, 'r') as f:
+        inlined_css = f.read()
+    
+    # Read and inline all JS files
+    js_files = {
+        'inlined_js_edges': os.path.join(viz_dir, 'utils', 'edges.js'),
+        'inlined_js_nodes': os.path.join(viz_dir, 'utils', 'nodes.js'),
+        'inlined_js_filters': os.path.join(viz_dir, 'utils', 'filters.js'),
+        'inlined_js_rankings': os.path.join(viz_dir, 'utils', 'rankings.js'),
+        'inlined_js_scc': os.path.join(viz_dir, 'utils', 'scc.js'),
+        'inlined_js_partitions': os.path.join(viz_dir, 'utils', 'partitions.js'),
+        'inlined_js_ui_state': os.path.join(viz_dir, 'utils', 'ui_state.js'),
+        'inlined_js_highlighting': os.path.join(viz_dir, 'utils', 'highlighting.js'),
+        'inlined_js_widgets': os.path.join(viz_dir, 'graph_widgets.js'),
+    }
+    
+    inlined_js = {}
+    for key, filepath in js_files.items():
+        with open(filepath, 'r') as f:
+            inlined_js[key] = f.read()
 
     template = Template(template_content)
     
@@ -170,7 +199,9 @@ def load_and_populate_template(template_file, edge_controls_html, checkbox_items
         partition_labels_json=partition_labels_json,
         stats_json=stats_json,
         filter_polarity=filter_polarity,
-        node_id_to_label_json=node_id_to_label_json
+        node_id_to_label_json=node_id_to_label_json,
+        inlined_css=inlined_css,
+        **inlined_js
     )
 
     return widget_html
