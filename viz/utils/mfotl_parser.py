@@ -24,7 +24,8 @@ def parse_mfotl_file(mfotl_path):
     # Extract LET definitions (ending with " IN ")
     let_definitions = {}
     let_order = []  # Track original order
-    let_pattern = r'LET\s+([A-Za-z_][A-Za-z0-9_٭]*)\s*\([^)]*\)\s*=\s*.*?\s+IN\s+'
+    # Pattern allows for optional characters (like + or -) between parameter list and =
+    let_pattern = r'LET\s+([A-Za-z_][A-Za-z0-9_٭]*)\s*\([^)]*\)[^=]*=\s*.*?\s+IN\s+'
     
     for match in re.finditer(let_pattern, content):
         let_name = match.group(1)
