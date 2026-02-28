@@ -36,9 +36,12 @@ def merge_by_descendants(partitions, partition_labels, sccs_all):
     # Create merged partitions and labels
     merged_partitions = {}
     merged_labels = {}
+    leaf_only_anchors = []  # Collect all partitions with only anchor nodes (no descendants)
+    
     for frozen_nodes, anchor_indices in node_set_to_anchors.items():
-        # Skip partitions with 0 non-leaf nodes
+        # Bundle all partitions with 0 non-leaf nodes into one
         if len(frozen_nodes) == 0:
+            leaf_only_anchors.extend(anchor_indices)
             continue
             
         # Use the first anchor index as the key for the merged partition
@@ -59,6 +62,24 @@ def merge_by_descendants(partitions, partition_labels, sccs_all):
         # Generate label with leaf suffix
         suffix = f"leaf{'ves' if len(anchor_names) > 1 else ''}"
         merged_labels[key_idx] = f"{label_base} ({len(all_nodes) - len(anchor_names)} nodes, {len(anchor_names)} {suffix})"
+    
+    # Bundle all leaf-only partitions together if there are any
+    if leaf_only_anchors:
+        key_idx = leaf_only_anchors[0]
+        all_nodes = set()
+        for idx in leaf_only_anchors:
+            all_nodes.update(sccs_all[idx])
+        merged_partitions[key_idx] = all_nodes
+        
+        # Create label for bundled leaf-only partition
+        anchor_names = sorted([partition_labels[idx] for idx in leaf_only_anchors])
+        if len(anchor_names) == 1:
+            label_base = anchor_names[0]
+        else:
+            label_base = f"{', '.join(anchor_names[:-1])} & {anchor_names[-1]}"
+        
+        suffix = f"leaf{'ves' if len(anchor_names) > 1 else ''}"
+        merged_labels[key_idx] = f"{label_base} ({len(anchor_names)} {suffix} only)"
     
     return merged_partitions, merged_labels
 
