@@ -219,6 +219,15 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir):
         logger.log("✗ No partition files found", "ERROR")
         return False
     
+    # Create output directory for partition outputs and diffs
+    output_dir = config['output']['directory']
+    if not os.path.isabs(output_dir):
+        output_dir = os.path.join(workspace_root, output_dir)
+    
+    partition_outputs_dir = os.path.join(output_dir, 'partition_outputs')
+    os.makedirs(partition_outputs_dir, exist_ok=True)
+    logger.log(f"Output directory: {partition_outputs_dir}")
+    
     # Build command
     runner_script = os.path.join(script_dir, 'run_partition_enfguard.py')
     
@@ -228,7 +237,8 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir):
         partition_dir,
         '-sig', config['input']['signature'],
         '-log', config['input']['log'],
-        '-func', config['input']['functions']
+        '-func', config['input']['functions'],
+        '-o', partition_outputs_dir  # Add output directory for saving outputs and diffs
     ]
     
     # Always use input.mfotl as reference for timing comparison
@@ -237,6 +247,9 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir):
     
     if config['partition_execution'].get('timeout'):
         cmd.extend(['-t', str(config['partition_execution']['timeout'])])
+    
+    if config['partition_execution'].get('label'):
+        cmd.append('-l')
     
     logger.log(f"Command: {' '.join(cmd)}")
     logger.log("")  # Empty line before output
@@ -316,7 +329,12 @@ def run_workflow(config_file):
     if not os.path.isabs(output_dir):
         output_dir = os.path.join(workspace_root, output_dir)
     
-    # Create output directory first to ensure it exists
+    # Clear output directory if it already exists (start fresh)
+    if os.path.exists(output_dir):
+        print(f"Clearing existing output directory: {output_dir}")
+        shutil.rmtree(output_dir)
+    
+    # Create output directory fresh
     os.makedirs(output_dir, exist_ok=True)
     
     # Setup logger

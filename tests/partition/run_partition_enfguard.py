@@ -8,143 +8,432 @@ import sys
 import argparse
 import subprocess
 import time
+import difflib
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+# Import specialized enforcer diff module
+try:
+    from enforcer_diff import (
+        compare_enforcer_outputs, 
+        save_comparison_report,
+        parse_enforcer_output,
+        combine_blocks_by_timestamp
+    )
+    ENFORCER_DIFF_AVAILABLE = True
+except ImportError:
+    ENFORCER_DIFF_AVAILABLE = False
+    print("Warning: enforcer_diff module not available, will use basic diff")
 
 
-def run_enfguard_on_partitions(mfotl_dir, sig_file, log_file, func_file, reference_mfotl=None, timeout=None):
+def run_enfguard_command(
+    mfotl_file: str,
+    sig_file: str, 
+    log_file: str, 
+    func_file: str,
+    label: bool = False,
+    timeout: Optional[int] = None
+) -> Tuple[int, str, str, float]:
     """
-    Run enfguard on all MFOTL files in the given directory.
+    Run enfguard on a single MFOTL file.
     
     Args:
-        mfotl_dir: Directory containing partition MFOTL files
+        mfotl_file: Path to MFOTL formula file
         sig_file: Path to signature file
         log_file: Path to log file
-        func_file: Path to function file
-        reference_mfotl: Optional reference MFOTL file to compare against
-        timeout: Optional timeout in seconds for each run
-    
+        func_file: Path to functions file
+        label: Enable label output
+        timeout: Optional timeout in seconds
+        
     Returns:
-        0 if all partitions succeeded, 1 otherwise
+        Tuple of (exit_code, stdout, stderr, elapsed_time)
     """
-    reference_time = None
+    cmd = [
+        "./enfguard",
+        "-sig", sig_file,
+        "-formula", mfotl_file,
+        "-log", log_file,
+        "-func", func_file
+    ]
     
-    # Run reference file first if provided
-    if reference_mfotl:
-        print(f"RUNNING REFERENCE FILE: {reference_mfotl}")
-        
-        cmd = ["./enfguard", 
-               "-sig", sig_file,
-               "-formula", reference_mfotl,
-               "-log", log_file,
-               "-func", func_file]
-        
-        if timeout:
-            cmd = ["timeout", str(timeout)] + cmd
-        
-        try:
-            start_time = time.time()
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                cwd=os.getcwd()
-            )
-            reference_time = time.time() - start_time
-            
-            if result.returncode == 0:
-                print(f"✓ SUCCESS - Time: {reference_time:.2f}s")
-            elif result.returncode == 124:
-                print(f"⏱ TIMEOUT - Time: {reference_time:.2f}s")
-                reference_time = None  # Don't compare if timed out
-            else:
-                print(f"✗ FAILED (exit code {result.returncode}) - Time: {reference_time:.2f}s")
-                print("Error output:")
-                for line in result.stderr.split('\n')[:10]:
-                    print(f"  {line}")
-                reference_time = None  # Don't compare if failed
-                
-        except Exception as e:
-            print(f"✗ EXCEPTION: {e}")
-            reference_time = None
-        
-        print()
+    if label:
+        cmd.append("-label")
     
-    # Find all .mfotl files in the directory
-    mfotl_files = sorted(Path(mfotl_dir).glob("*.mfotl"))
-    
-    if not mfotl_files:
-        print(f"No .mfotl files found in {mfotl_dir}")
-        return
-    
-    print(f"RUNNING PARTITIONS ({len(mfotl_files)} files)")
-    print(f"  Signature: {sig_file}")
-    print(f"  Log: {log_file}")
-    print(f"  Functions: {func_file}")
     if timeout:
-        print(f"  Timeout: {timeout}s per partition")
+        cmd = ["timeout", str(timeout)] + cmd
     
-    results = []
-    for mfotl_file in mfotl_files:
-        partition_name = mfotl_file.name
-        print(f"\n[{partition_name}] Running enfguard...")
+    start_time = time.time()
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        cwd=os.getcwd()
+    )
+    elapsed_time = time.time() - start_time
+    
+    return result.returncode, result.stdout, result.stderr, elapsed_time
+
+
+def setup_output_directories(output_dir: str) -> Tuple[str, str]:
+    """
+    Create output directory structure.
+    
+    Args:
+        output_dir: Base output directory
         
-        # Build command
-        cmd = ["./enfguard", 
-               "-sig", sig_file,
-               "-formula", str(mfotl_file),
-               "-log", log_file,
-               "-func", func_file]
+    Returns:
+        Tuple of (output_subdir, diff_subdir)
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    output_subdir = os.path.join(output_dir, 'output')
+    diff_subdir = os.path.join(output_dir, 'diff')
+    os.makedirs(output_subdir, exist_ok=True)
+    os.makedirs(diff_subdir, exist_ok=True)
+    
+    print(f"Output directory: {output_dir}")
+    print(f"  - Outputs: {output_subdir}")
+    print(f"  - Diffs: {diff_subdir}")
+    print()
+    
+    return output_subdir, diff_subdir
+
+
+def run_reference_enfguard(
+    reference_mfotl: str,
+    sig_file: str,
+    log_file: str,
+    func_file: str,
+    label: bool,
+    timeout: Optional[int],
+    output_subdir: Optional[str]
+) -> Tuple[Optional[str], Optional[float]]:
+    """
+    Run enfguard on reference MFOTL file.
+    
+    Args:
+        reference_mfotl: Path to reference MFOTL file
+        sig_file: Path to signature file
+        log_file: Path to log file
+        func_file: Path to functions file
+        label: Enable label output
+        timeout: Optional timeout in seconds
+        output_subdir: Optional directory to save output
         
-        # Add timeout if specified
-        if timeout:
-            cmd = ["timeout", str(timeout)] + cmd
+    Returns:
+        Tuple of (reference_output, reference_time) or (None, None) if failed
+    """
+    print(f"RUNNING REFERENCE FILE: {reference_mfotl}")
+    
+    try:
+        exit_code, stdout, stderr, elapsed_time = run_enfguard_command(
+            reference_mfotl, sig_file, log_file, func_file, label, timeout
+        )
         
-        try:
-            # Run enfguard and time it
-            start_time = time.time()
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                cwd=os.getcwd()
+        if exit_code == 0:
+            print(f"✓ SUCCESS - Time: {elapsed_time:.2f}s")
+            
+            # Save reference output if output_subdir specified
+            if output_subdir:
+                ref_output_file = os.path.join(output_subdir, "reference_output.txt")
+                with open(ref_output_file, 'w') as f:
+                    f.write(stdout)
+                print(f"  Saved output to: {ref_output_file}")
+            
+            print()
+            return stdout, elapsed_time
+            
+        elif exit_code == 124:
+            print(f"⏱ TIMEOUT - Time: {elapsed_time:.2f}s")
+        else:
+            print(f"✗ FAILED (exit code {exit_code}) - Time: {elapsed_time:.2f}s")
+            print("Error output:")
+            for line in stderr.split('\n')[:10]:
+                print(f"  {line}")
+                
+    except Exception as e:
+        print(f"✗ EXCEPTION: {e}")
+    
+    print()
+    return None, None
+
+
+def compare_and_save_output(
+    partition_name: str,
+    partition_output: str,
+    reference_output: str,
+    output_subdir: Optional[str],
+    diff_subdir: Optional[str]
+) -> Tuple[bool, Optional[float]]:
+    """
+    Compare partition output with reference and save results.
+    
+    Args:
+        partition_name: Name of partition file
+        partition_output: Partition output string
+        reference_output: Reference output string
+        output_subdir: Directory to save outputs
+        diff_subdir: Directory to save diffs
+        
+    Returns:
+        Tuple of (output_matches, match_percentage)
+    """
+    # Save partition output
+    if output_subdir:
+        partition_output_file = os.path.join(
+            output_subdir, 
+            f"{os.path.splitext(partition_name)[0]}_output.txt"
+        )
+        with open(partition_output_file, 'w') as f:
+            f.write(partition_output)
+    
+    # Compare outputs
+    if ENFORCER_DIFF_AVAILABLE:
+        comparison = compare_enforcer_outputs(
+            reference_output, 
+            partition_output, 
+            partition_name
+        )
+        match_percentage = comparison['match_percentage']
+        output_matches = (
+            comparison['differing_blocks'] == 0 and 
+            len(comparison['missing_in_partition']) == 0 and
+            len(comparison['extra_in_partition']) == 0
+        )
+        
+        # Save specialized diff report if outputs differ
+        if not output_matches and diff_subdir:
+            diff_file = os.path.join(
+                diff_subdir,
+                f"{os.path.splitext(partition_name)[0]}_diff.txt"
             )
-            elapsed_time = time.time() - start_time
+            save_comparison_report(comparison, diff_file)
+            return output_matches, match_percentage
+        
+        return output_matches, match_percentage
+    else:
+        # Fall back to basic string comparison
+        output_matches = (partition_output == reference_output)
+        
+        # Save basic unified diff if outputs differ
+        if not output_matches and diff_subdir:
+            diff_file = os.path.join(
+                diff_subdir,
+                f"{os.path.splitext(partition_name)[0]}_diff.txt"
+            )
+            ref_lines = reference_output.splitlines(keepends=True)
+            part_lines = partition_output.splitlines(keepends=True)
+            diff = difflib.unified_diff(
+                ref_lines,
+                part_lines,
+                fromfile='reference',
+                tofile=partition_name,
+                lineterm='\n'
+            )
+            with open(diff_file, 'w') as f:
+                f.writelines(diff)
+        
+        return output_matches, None
+
+
+def run_partition_enfguard(
+    mfotl_file: Path,
+    sig_file: str,
+    log_file: str,
+    func_file: str,
+    label: bool,
+    timeout: Optional[int],
+    reference_output: Optional[str],
+    output_subdir: Optional[str],
+    diff_subdir: Optional[str]
+) -> Dict:
+    """
+    Run enfguard on a single partition file and compare with reference.
+    
+    Args:
+        mfotl_file: Path to partition MFOTL file
+        sig_file: Path to signature file
+        log_file: Path to log file
+        func_file: Path to functions file
+        label: Enable label output
+        timeout: Optional timeout in seconds
+        reference_output: Optional reference output for comparison
+        output_subdir: Optional directory to save outputs
+        diff_subdir: Optional directory to save diffs
+        
+    Returns:
+        Dictionary with result information
+    """
+    partition_name = mfotl_file.name
+    print(f"\n[{partition_name}] Running enfguard...")
+    
+    try:
+        exit_code, stdout, stderr, elapsed_time = run_enfguard_command(
+            str(mfotl_file), sig_file, log_file, func_file, label, timeout
+        )
+        
+        if exit_code == 0:
+            status = "✓ SUCCESS"
             
-            # Check exit code
-            if result.returncode == 0:
-                status = "✓ SUCCESS"
-            elif result.returncode == 124:  # timeout exit code
-                status = "⏱ TIMEOUT"
+            # Compare with reference if available
+            output_matches = None
+            match_percentage = None
+            
+            if reference_output is not None:
+                output_matches, match_percentage = compare_and_save_output(
+                    partition_name, stdout, reference_output, 
+                    output_subdir, diff_subdir
+                )
+                
+                if output_matches:
+                    print(f"[{partition_name}] {status} - Time: {elapsed_time:.2f}s - Output: ✓ MATCHES reference (100.00%)")
+                else:
+                    match_pct_str = f"{match_percentage:.2f}%" if match_percentage is not None else "unknown"
+                    print(f"[{partition_name}] {status} - Time: {elapsed_time:.2f}s - Output: ✗ DIFFERS from reference ({match_pct_str} matching)")
+                    if diff_subdir:
+                        diff_file = os.path.join(diff_subdir, f"{os.path.splitext(partition_name)[0]}_diff.txt")
+                        print(f"  Detailed diff saved to: {diff_file}")
             else:
-                status = f"✗ FAILED (exit code {result.returncode})"
+                print(f"[{partition_name}] {status} - Time: {elapsed_time:.2f}s")
             
-            print(f"[{partition_name}] {status} - Time: {elapsed_time:.2f}s")
-            
-            # Show first few lines of output if there's an error
-            if result.returncode not in [0, 124]:
-                print("Error output:")
-                for line in result.stderr.split('\n')[:10]:
-                    print(f"  {line}")
-            
-            results.append({
+            return {
                 'file': partition_name,
                 'status': status,
-                'exit_code': result.returncode,
-                'time': elapsed_time
-            })
+                'exit_code': exit_code,
+                'time': elapsed_time,
+                'output_matches': output_matches,
+                'match_percentage': match_percentage,
+                'output': stdout
+            }
             
-        except Exception as e:
-            print(f"[{partition_name}] ✗ EXCEPTION: {e}")
-            results.append({
-                'file': partition_name,
-                'status': 'EXCEPTION',
-                'exit_code': -1,
-                'time': 0
-            })
+        elif exit_code == 124:
+            status = "⏱ TIMEOUT"
+            print(f"[{partition_name}] {status} - Time: {elapsed_time:.2f}s")
+        else:
+            status = f"✗ FAILED (exit code {exit_code})"
+            print(f"[{partition_name}] {status} - Time: {elapsed_time:.2f}s")
+            print("Error output:")
+            for line in stderr.split('\n')[:10]:
+                print(f"  {line}")
+        
+        return {
+            'file': partition_name,
+            'status': status,
+            'exit_code': exit_code,
+            'time': elapsed_time,
+            'output_matches': None,
+            'match_percentage': None,
+            'output': None
+        }
+        
+    except Exception as e:
+        print(f"[{partition_name}] ✗ EXCEPTION: {e}")
+        return {
+            'file': partition_name,
+            'status': 'EXCEPTION',
+            'exit_code': -1,
+            'time': 0,
+            'output_matches': None,
+            'match_percentage': None,
+            'output': None
+        }
+
+
+def combine_and_compare_partitions(
+    results: List[Dict],
+    reference_output: str,
+    output_subdir: Optional[str],
+    diff_subdir: Optional[str]
+) -> None:
+    """
+    Combine all partition outputs and compare to reference.
     
-    # Print summary
+    Args:
+        results: List of partition result dictionaries
+        reference_output: Reference output string
+        output_subdir: Directory to save combined output
+        diff_subdir: Directory to save combined diff
+    """
+    if not ENFORCER_DIFF_AVAILABLE:
+        return
+    
+    # Collect all successful partition outputs
+    successful_outputs = [r['output'] for r in results if r['output'] is not None]
+    
+    if not successful_outputs:
+        return
+    
+    print("\n" + "="*80)
+    print("COMBINED PARTITION OUTPUT COMPARISON")
+    print("="*80)
+    
+    # Parse all partition outputs into blocks
+    all_blocks = []
+    for output in successful_outputs:
+        blocks = parse_enforcer_output(output)
+        all_blocks.extend(blocks)
+    
+    # Combine blocks by timestamp
+    combined_blocks = combine_blocks_by_timestamp(all_blocks)
+    
+    # Reconstruct combined output as text
+    combined_output_lines = [block.raw_content for block in combined_blocks]
+    combined_output = '\n'.join(combined_output_lines)
+    
+    # Save combined output
+    if output_subdir:
+        combined_output_file = os.path.join(output_subdir, "combined_partitions_output.txt")
+        with open(combined_output_file, 'w') as f:
+            f.write(combined_output)
+        print(f"Combined output saved to: {combined_output_file}")
+    
+    # Compare combined output to reference
+    combined_comparison = compare_enforcer_outputs(
+        reference_output,
+        combined_output,
+        "combined_partitions"
+    )
+    
+    combined_match_pct = combined_comparison['match_percentage']
+    combined_matches = (
+        combined_comparison['differing_blocks'] == 0 and 
+        len(combined_comparison['missing_in_partition']) == 0 and
+        len(combined_comparison['extra_in_partition']) == 0
+    )
+    
+    if combined_matches:
+        print(f"✓ Combined partition output MATCHES reference (100.00%)")
+    else:
+        print(f"✗ Combined partition output DIFFERS from reference ({combined_match_pct:.2f}% matching)")
+        print(f"  Matching blocks: {combined_comparison['matching_blocks']}/{combined_comparison['total_blocks']}")
+        print(f"  Differing blocks: {combined_comparison['differing_blocks']}")
+        print(f"  Missing in combined: {len(combined_comparison['missing_in_partition'])}")
+        print(f"  Extra in combined: {len(combined_comparison['extra_in_partition'])}")
+        
+        # Save combined diff report
+        if diff_subdir:
+            combined_diff_file = os.path.join(diff_subdir, "combined_partitions_diff.txt")
+            save_comparison_report(combined_comparison, combined_diff_file)
+            print(f"  Detailed diff saved to: {combined_diff_file}")
+
+
+def print_summary(
+    results: List[Dict],
+    reference_output: Optional[str],
+    reference_time: Optional[float]
+) -> None:
+    """
+    Print summary of all partition runs.
+    
+    Args:
+        results: List of partition result dictionaries
+        reference_output: Optional reference output for comparison stats
+        reference_time: Optional reference execution time
+    """
+    print("\n" + "="*80)
     print("SUMMARY")
+    print("="*80)
     
+    # Count results by status
     success_count = sum(1 for r in results if r['exit_code'] == 0)
     timeout_count = sum(1 for r in results if r['exit_code'] == 124)
     failed_count = sum(1 for r in results if r['exit_code'] not in [0, 124])
@@ -153,6 +442,25 @@ def run_enfguard_on_partitions(mfotl_dir, sig_file, log_file, func_file, referen
     print(f"Success: {success_count}")
     print(f"Timeout: {timeout_count}")
     print(f"Failed: {failed_count}")
+    
+    # Output comparison summary
+    if reference_output is not None:
+        matching_count = sum(1 for r in results if r.get('output_matches') is True)
+        differing_count = sum(1 for r in results if r.get('output_matches') is False)
+        
+        print(f"\nOutput Comparison (vs reference):")
+        print(f"  Matching: {matching_count}")
+        print(f"  Differing: {differing_count}")
+        
+        if differing_count > 0:
+            print(f"\nPartitions with differing outputs:")
+            for r in results:
+                if r.get('output_matches') is False:
+                    match_pct = r.get('match_percentage')
+                    if match_pct is not None:
+                        print(f"  - {r['file']} ({match_pct:.2f}% matching)")
+                    else:
+                        print(f"  - {r['file']}")
     
     # Timing analysis
     successful_results = [r for r in results if r['exit_code'] == 0]
@@ -180,16 +488,94 @@ def run_enfguard_on_partitions(mfotl_dir, sig_file, log_file, func_file, referen
             else:
                 print(f"  Slowdown: {1/speedup:.2f}x SLOWER")
     
+    # Failed partitions details
     if failed_count > 0:
         print("\nFailed partitions:")
         for r in results:
             if r['exit_code'] not in [0, 124]:
                 print(f"  - {r['file']} (exit code {r['exit_code']})")
+
+
+def run_enfguard_on_partitions(
+    mfotl_dir: str, 
+    sig_file: str, 
+    log_file: str, 
+    func_file: str, 
+    reference_mfotl: Optional[str] = None, 
+    timeout: Optional[int] = None, 
+    output_dir: Optional[str] = None, 
+    label: bool = False
+) -> int:
+    """
+    Run enfguard on all MFOTL files in the given directory.
+    
+    Args:
+        mfotl_dir: Directory containing partition MFOTL files
+        sig_file: Path to signature file
+        log_file: Path to log file
+        func_file: Path to function file
+        reference_mfotl: Optional reference MFOTL file to compare against
+        timeout: Optional timeout in seconds for each run
+        output_dir: Optional directory to save partition outputs and diffs
+        label: Optional flag to enable label output (shows which rules caused actions)
+    
+    Returns:
+        0 if all partitions succeeded, 1 otherwise
+    """
+    # Setup output directories
+    output_subdir = None
+    diff_subdir = None
+    if output_dir:
+        output_subdir, diff_subdir = setup_output_directories(output_dir)
+    
+    # Run reference file first if provided
+    reference_output = None
+    reference_time = None
+    if reference_mfotl:
+        reference_output, reference_time = run_reference_enfguard(
+            reference_mfotl, sig_file, log_file, func_file, 
+            label, timeout, output_subdir
+        )
+    
+    # Find all .mfotl files in the directory
+    mfotl_files = sorted(Path(mfotl_dir).glob("*.mfotl"))
+    
+    if not mfotl_files:
+        print(f"No .mfotl files found in {mfotl_dir}")
+        return 0
+    
+    print(f"RUNNING PARTITIONS ({len(mfotl_files)} files)")
+    print(f"  Signature: {sig_file}")
+    print(f"  Log: {log_file}")
+    print(f"  Functions: {func_file}")
+    if timeout:
+        print(f"  Timeout: {timeout}s per partition")
+    
+    # Run enfguard on all partition files
+    results = []
+    for mfotl_file in mfotl_files:
+        result = run_partition_enfguard(
+            mfotl_file, sig_file, log_file, func_file,
+            label, timeout, reference_output,
+            output_subdir, diff_subdir
+        )
+        results.append(result)
+    
+    # Combine all partition outputs and compare to reference
+    if reference_output is not None:
+        combine_and_compare_partitions(
+            results, reference_output, 
+            output_subdir, diff_subdir
+        )
+    
+    # Print summary
+    print_summary(results, reference_output, reference_time)
     
     # Return exit code: 0 if all succeeded, 1 if any failed or timed out
-    if failed_count > 0 or timeout_count > 0:
-        return 1
-    return 0
+    success_count = sum(1 for r in results if r['exit_code'] == 0)
+    if success_count == len(results):
+        return 0
+    return 1
 
 
 if __name__ == "__main__":
@@ -205,6 +591,10 @@ if __name__ == "__main__":
                        help='Reference MFOTL file to compare timing against (optional)')
     parser.add_argument('-t', '--timeout', type=int, default=None,
                        help='Timeout in seconds for each partition (optional)')
+    parser.add_argument('-o', '--output-dir', default=None,
+                       help='Directory to save partition outputs and diffs (optional)')
+    parser.add_argument('-l', '--label', action='store_true',
+                       help='Enable label output to show which rules caused actions (optional)')
     
     args = parser.parse_args()
     
@@ -235,6 +625,8 @@ if __name__ == "__main__":
         args.log,
         args.functions,
         args.reference,
-        args.timeout
+        args.timeout,
+        args.output_dir,
+        args.label
     )
     sys.exit(exit_code)
