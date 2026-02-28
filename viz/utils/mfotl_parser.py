@@ -6,6 +6,28 @@ import os
 import re
 
 
+def extract_first_leaf_line_number(partition_label):
+    """Extract the starting line number from the first leaf in a partition label.
+    
+    Args:
+        partition_label: String like "gdpr.lex:2318:1-2324:45 (18 nodes, 1 leaf)" 
+                        or "gdpr.lex:1128:1-1138:45, gdpr.lex:1148:1-1157:45, ..."
+    
+    Returns:
+        str: The line number (e.g., "2318") or None if not found
+    """
+    # Pattern to match location like "gdpr.lex:2318:1-2324:45"
+    # We want to extract the first number after the colon (the starting line)
+    match = re.search(r':\d+:\d+-\d+:\d+', partition_label)
+    if match:
+        # Extract just the starting line number
+        location = match.group(0)  # e.g., ":2318:1-2324:45"
+        line_match = re.search(r':(\d+):', location)
+        if line_match:
+            return line_match.group(1)
+    return None
+
+
 def parse_mfotl_file(mfotl_path):
     """Parse an MFOTL file to extract LET definitions and top-level rules.
     
@@ -232,7 +254,14 @@ def generate_partition_mfotl_files(mfotl_file, partitions, partition_labels, rul
         
         # Write to file
         partition_label = partition_labels.get(partition_idx, f"partition_{partition_idx}")
-        output_path = os.path.join(mfotl_output_dir, f"{base_name}_partition_{partition_idx}.mfotl")
+        
+        # Extract line number from first leaf to use in filename
+        line_number = extract_first_leaf_line_number(partition_label)
+        if line_number:
+            output_path = os.path.join(mfotl_output_dir, f"{base_name}_partition_{line_number}.mfotl")
+        else:
+            # Fallback to using partition index if no line number found
+            output_path = os.path.join(mfotl_output_dir, f"{base_name}_partition_{partition_idx}.mfotl")
         
         with open(output_path, 'w') as f:
             f.write(mfotl_content)
