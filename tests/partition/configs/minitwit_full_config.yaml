@@ -12,9 +12,10 @@ input:
 output:
   directory: "tests/partition/results/minitwit_full_output"
   graph_html: "minitwit_graph.html"
-  save_json: true
-  workflow_log: "workflow.log"
+  workflow_log: "minitwit_full_output.log"
   enforcement_results: "partition_enforcement_results.txt"
+  save_normalized_mfotl: true
+  save_json: true
 
 # Visualization & partitioning options
 visualization:

@@ -14,7 +14,7 @@ from typing import Dict, List, Optional, Tuple
 
 # Import specialized enforcer diff module
 try:
-    from enforcer_diff import (
+    from tests.partition.utils.enforcer_diff import (
         compare_enforcer_outputs, 
         save_comparison_report,
         parse_enforcer_output,

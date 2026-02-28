@@ -62,6 +62,9 @@ def load_config(config_file):
     if config['output'].get('save_json') is None:
         config['output']['save_json'] = True
     
+    if config['output'].get('save_normalized_mfotl') is None:
+        config['output']['save_normalized_mfotl'] = False
+    
     # Auto-set partition directory if not specified
     if config['partition_execution'].get('enabled'):
         if config['partition_execution'].get('partition_dir') is None:
@@ -128,6 +131,87 @@ def generate_json(config, logger, workspace_root):
         logger.log(f"✗ JSON generation failed with exit code {e.returncode}", "ERROR")
         if e.stderr:
             logger.log(f"stderr: {e.stderr}", "ERROR")
+        return None
+
+
+def generate_normalized_mfotl(config, logger, workspace_root, script_dir):
+    """Generate normalized MFOTL from original MFOTL using enfguard and pretty print it."""
+    logger.log("Generating normalized MFOTL...")
+    
+    mfotl_file = config['input']['mfotl']
+    sig_file = config['input']['signature']
+    output_dir = config['output']['directory']
+    
+    # Make output directory absolute if it's relative
+    if not os.path.isabs(output_dir):
+        output_dir = os.path.join(workspace_root, output_dir)
+    
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Determine normalized MFOTL output path (absolute)
+    normalized_file = os.path.join(
+        output_dir,
+        os.path.splitext(os.path.basename(mfotl_file))[0] + '_normalized.mfotl'
+    )
+    
+    # Create temp file for raw enfguard output
+    temp_file = normalized_file + '.tmp'
+    
+    # Build enfguard command (same as JSON generation but without -json flag)
+    enfguard_binary = os.path.join(workspace_root, 'enfguard')
+    
+    cmd = [
+        enfguard_binary,
+        '-sig', sig_file,
+        '-formula', mfotl_file,
+        '-print-normal-form',
+        '-label'
+    ]
+    
+    logger.log(f"Command: {' '.join(cmd)}")
+    
+    try:
+        # Run command and capture output to save as normalized MFOTL
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=workspace_root
+        )
+        
+        # Save raw normalized MFOTL to temp file
+        with open(temp_file, 'w') as f:
+            f.write(result.stdout)
+        
+        logger.log("Pretty-printing normalized MFOTL...")
+        
+        # Run pretty printer
+        pretty_printer = os.path.join(script_dir, 'utils', 'pretty_print_normalized_mfotl.py')
+        pretty_cmd = [sys.executable, pretty_printer, temp_file, normalized_file]
+        
+        pretty_result = subprocess.run(
+            pretty_cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=workspace_root
+        )
+        
+        # Clean up temp file
+        os.remove(temp_file)
+        
+        logger.log(f"Normalized MFOTL saved to: {normalized_file}")
+        return normalized_file
+        
+    except subprocess.CalledProcessError as e:
+        logger.log(f"✗ Normalized MFOTL generation failed with exit code {e.returncode}", "ERROR")
+        if e.stderr:
+            logger.log(f"stderr: {e.stderr}", "ERROR")
+        # Clean up temp file if it exists
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
         return None
 
 
@@ -229,7 +313,7 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir):
     logger.log(f"Output directory: {partition_outputs_dir}")
     
     # Build command
-    runner_script = os.path.join(script_dir, 'run_partition_enfguard.py')
+    runner_script = os.path.join(script_dir, 'utils', 'run_partition_enfguard.py')
     
     cmd = [
         sys.executable,
@@ -378,6 +462,12 @@ def run_workflow(config_file):
         if not config['output'].get('save_json') and os.path.exists(json_file):
             os.remove(json_file)
             logger.log(f"Removed intermediate JSON file")
+    
+    # Step 1.5: Generate normalized MFOTL if enabled
+    if config['output'].get('save_normalized_mfotl'):
+        normalized_file = generate_normalized_mfotl(config, logger, workspace_root, script_dir)
+        if not normalized_file:
+            logger.log("Warning: Failed to generate normalized MFOTL, continuing...", "WARNING")
     else:
         logger.log("Visualization step skipped (disabled in config)")
     
