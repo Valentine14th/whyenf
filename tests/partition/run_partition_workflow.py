@@ -335,21 +335,22 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir):
     if config['partition_execution'].get('label'):
         cmd.append('-l')
     
-    logger.log(f"Command: {' '.join(cmd)}")
-    logger.log("")  # Empty line before output
-    
-    # Prepare output file for enforcement results
+    # Add JSON summary argument if enforcement_results specified
     enforcement_results_file = None
-    output_lines = []
-    
     if config['output'].get('enforcement_results'):
-        enforcement_results_file = config['output'].get('enforcement_results')
+        enforcement_results_file = config['output']['enforcement_results']
         # Make absolute if relative
         if not os.path.isabs(enforcement_results_file):
             output_dir = config['output']['directory']
             if not os.path.isabs(output_dir):
                 output_dir = os.path.join(workspace_root, output_dir)
             enforcement_results_file = os.path.join(output_dir, enforcement_results_file)
+        
+        # Add json-summary argument
+        cmd.extend(['-j', enforcement_results_file])
+    
+    logger.log(f"Command: {' '.join(cmd)}")
+    logger.log("")  # Empty line before output
     
     try:
         # Set environment to disable Python output buffering
@@ -367,24 +368,18 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir):
             cwd=workspace_root
         )
         
-        # Stream output in real time and capture for file
+        # Stream output in real time
         for line in process.stdout:
             line = line.rstrip()
             if line:
                 logger.log(line)
-                output_lines.append(line)
         
         # Wait for process to complete
         return_code = process.wait()
         
-        # Save detailed enforcement results to separate file
-        if enforcement_results_file and output_lines:
-            with open(enforcement_results_file, 'w') as f:
-                f.write("=" * 80 + "\n")
-                f.write("PARTITION ENFORCEMENT RESULTS\n")
-                f.write("=" * 80 + "\n\n")
-                f.write('\n'.join(output_lines))
-            logger.log(f"Detailed results saved to: {enforcement_results_file}")
+        # JSON summary is saved by run_partition_enfguard.py itself
+        if enforcement_results_file:
+            logger.log(f"Enforcement results summary saved to: {enforcement_results_file}")
         
         if return_code == 0:
             logger.log("✓ All partitions ran successfully", "SUCCESS")

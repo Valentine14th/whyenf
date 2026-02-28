@@ -13,7 +13,7 @@ output:
   directory: "tests/partition/results/minitwit_full_output"
   graph_html: "minitwit_graph.html"
   workflow_log: "minitwit_full_output.log"
-  enforcement_results: "partition_enforcement_results.txt"
+  enforcement_results: "partition_enforcement_results.json"
   save_normalized_mfotl: true
   save_json: true
 

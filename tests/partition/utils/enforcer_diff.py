@@ -8,7 +8,7 @@ Features:
 - Parse enforcer output into blocks, preserving reactive/proactive distinction
 - Combine multiple blocks at the same timestamp and type (useful for merging partition outputs)
 - Compare blocks between reference and partition outputs
-- Calculate match percentage and generate detailed diff reports
+- Calculate match percentage and generate detailed diff reports (plaintext and JSON)
 
 Block combining logic:
 - Only combines blocks of the same type (reactive with reactive, proactive with proactive)
@@ -18,6 +18,7 @@ Block combining logic:
 - Always ensures both reactive and proactive blocks exist for each timestamp
 """
 
+import json
 import re
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
@@ -323,7 +324,7 @@ def combine_blocks_by_timestamp(blocks: List[EnforcerBlock]) -> List[EnforcerBlo
     return combined_blocks
 
 
-def compare_blocks(ref_block: EnforcerBlock, part_block: EnforcerBlock) -> Tuple[bool, List[str]]:
+def compare_blocks(ref_block: EnforcerBlock, part_block: EnforcerBlock) -> Tuple[bool, Optional[Dict]]:
     """
     Compare two blocks with the same timestamp.
     Actions are compared as sets (order doesn't matter).
@@ -334,10 +335,9 @@ def compare_blocks(ref_block: EnforcerBlock, part_block: EnforcerBlock) -> Tuple
         part_block: Partition block
         
     Returns:
-        Tuple of (matches: bool, differences: List[str])
+        Tuple of (matches: bool, diff_dict: Optional[Dict])
+        diff_dict contains structured information about differences
     """
-    differences = []
-    
     # Parse actions from both blocks
     ref_causes, ref_suppressions = parse_block_actions(ref_block)
     part_causes, part_suppressions = parse_block_actions(part_block)
@@ -359,50 +359,39 @@ def compare_blocks(ref_block: EnforcerBlock, part_block: EnforcerBlock) -> Tuple
     suppressions_match = ref_suppressions_set == part_suppressions_set
     labels_match = ref_labels_set == part_labels_set
     
-    if not (causes_match and suppressions_match and labels_match):
-        differences.append("  REFERENCE:")
-        for line in ref_block.lines:
-            differences.append(f"    {line}")
-        differences.append("")
-        differences.append("  PARTITION:")
-        for line in part_block.lines:
-            differences.append(f"    {line}")
-        differences.append("")
-        
-        # Show what differs
-        if not labels_match:
-            differences.append("  Labels differ:")
-            only_ref = ref_labels_set - part_labels_set
-            only_part = part_labels_set - ref_labels_set
-            if only_ref:
-                differences.append(f"    Only in reference ({len(only_ref)} labels):")
-                for label in sorted(only_ref):
-                    differences.append(f"      {label}")
-            if only_part:
-                differences.append(f"    Only in partition ({len(only_part)} labels):")
-                for label in sorted(only_part):
-                    differences.append(f"      {label}")
-        
-        if not causes_match:
-            differences.append("  Causes differ:")
-            only_ref = ref_causes_set - part_causes_set
-            only_part = part_causes_set - ref_causes_set
-            if only_ref:
-                differences.append(f"    Only in reference: {sorted(only_ref)}")
-            if only_part:
-                differences.append(f"    Only in partition: {sorted(only_part)}")
-        
-        if not suppressions_match:
-            differences.append("  Suppressions differ:")
-            only_ref = ref_suppressions_set - part_suppressions_set
-            only_part = part_suppressions_set - ref_suppressions_set
-            if only_ref:
-                differences.append(f"    Only in reference: {sorted(only_ref)}")
-            if only_part:
-                differences.append(f"    Only in partition: {sorted(only_part)}")
+    matches = causes_match and suppressions_match and labels_match
     
-    matches = len(differences) == 0
-    return matches, differences
+    if not matches:
+        # Create structured diff data
+        diff_dict = {
+            "reference_block": {
+                "labels": ref_labels,
+                "causes": ref_causes,
+                "suppressions": ref_suppressions
+            },
+            "partition_block": {
+                "labels": part_labels,
+                "causes": part_causes,
+                "suppressions": part_suppressions
+            },
+            "differences": {
+                "labels": {
+                    "only_in_reference": sorted(list(ref_labels_set - part_labels_set)),
+                    "only_in_partition": sorted(list(part_labels_set - ref_labels_set))
+                },
+                "causes": {
+                    "only_in_reference": sorted(list(ref_causes_set - part_causes_set)),
+                    "only_in_partition": sorted(list(part_causes_set - ref_causes_set))
+                },
+                "suppressions": {
+                    "only_in_reference": sorted(list(ref_suppressions_set - part_suppressions_set)),
+                    "only_in_partition": sorted(list(part_suppressions_set - ref_suppressions_set))
+                }
+            }
+        }
+        return False, diff_dict
+    
+    return True, None
 
 
 def compare_enforcer_outputs(reference_output: str, partition_output: str, partition_name: str = "partition") -> Dict:
@@ -420,10 +409,10 @@ def compare_enforcer_outputs(reference_output: str, partition_output: str, parti
         - total_blocks: Total number of blocks (2 per timestamp: reactive + proactive)
         - matching_blocks: Number of matching blocks
         - differing_blocks: Number of differing blocks
-        - missing_in_partition: List of (timestamp, block_type) tuples missing in partition
-        - extra_in_partition: List of (timestamp, block_type) tuples extra in partition
+        - missing_in_partition: List of dicts with timestamp and block_type
+        - extra_in_partition: List of dicts with timestamp and block_type
         - match_percentage: Percentage of matching blocks
-        - block_differences: Dict mapping (timestamp, is_reactive) to diff info
+        - differing_blocks_details: List of dicts with detailed diff info
     """
     # Parse both outputs
     ref_blocks = parse_enforcer_output(reference_output)
@@ -439,10 +428,10 @@ def compare_enforcer_outputs(reference_output: str, partition_output: str, parti
     
     # Compare blocks
     matching_blocks = 0
-    differing_blocks = 0
+    differing_blocks_count = 0
     missing_in_partition = []
     extra_in_partition = []
-    block_differences = {}
+    differing_blocks_details = []
     
     for key in all_block_keys:
         ts, is_reactive = key
@@ -453,34 +442,46 @@ def compare_enforcer_outputs(reference_output: str, partition_output: str, parti
         
         if ref_block and part_block:
             # Both have this block - compare them
-            matches, diffs = compare_blocks(ref_block, part_block)
+            matches, diff_dict = compare_blocks(ref_block, part_block)
             if matches:
                 matching_blocks += 1
             else:
-                differing_blocks += 1
-                block_differences[key] = {
-                    'type': block_type,
-                    'diffs': diffs
+                differing_blocks_count += 1
+                diff_entry = {
+                    "timestamp": ts,
+                    "block_type": block_type,
+                    "reference_block": diff_dict["reference_block"],
+                    "partition_block": diff_dict["partition_block"],
+                    "differences": diff_dict["differences"]
                 }
+                differing_blocks_details.append(diff_entry)
         elif ref_block and not part_block:
             # Missing in partition
-            missing_in_partition.append((ts, block_type))
+            missing_in_partition.append({
+                "timestamp": ts,
+                "block_type": block_type
+            })
         elif part_block and not ref_block:
             # Extra in partition
-            extra_in_partition.append((ts, block_type))
+            extra_in_partition.append({
+                "timestamp": ts,
+                "block_type": block_type
+            })
     
     total_blocks = len(all_block_keys)
     match_percentage = (matching_blocks / total_blocks * 100) if total_blocks > 0 else 0.0
     
     return {
-        'total_blocks': total_blocks,
-        'matching_blocks': matching_blocks,
-        'differing_blocks': differing_blocks,
+        'partition_name': partition_name,
+        'summary': {
+            'total_blocks': total_blocks,
+            'matching_blocks': matching_blocks,
+            'differing_blocks': differing_blocks_count,
+            'match_percentage': match_percentage
+        },
         'missing_in_partition': missing_in_partition,
         'extra_in_partition': extra_in_partition,
-        'match_percentage': match_percentage,
-        'block_differences': block_differences,
-        'partition_name': partition_name
+        'differing_blocks': differing_blocks_details
     }
 
 
@@ -500,44 +501,80 @@ def format_comparison_report(comparison: Dict) -> str:
     lines.append("=" * 80)
     lines.append("")
     
+    summary = comparison['summary']
     lines.append("SUMMARY:")
-    lines.append(f"  Total blocks: {comparison['total_blocks']}")
-    lines.append(f"  Matching blocks: {comparison['matching_blocks']}")
-    lines.append(f"  Differing blocks: {comparison['differing_blocks']}")
-    lines.append(f"  Match percentage: {comparison['match_percentage']:.2f}%")
+    lines.append(f"  Total blocks: {summary['total_blocks']}")
+    lines.append(f"  Matching blocks: {summary['matching_blocks']}")
+    lines.append(f"  Differing blocks: {summary['differing_blocks']}")
+    lines.append(f"  Match percentage: {summary['match_percentage']:.2f}%")
     lines.append("")
     
     if comparison['missing_in_partition']:
         lines.append(f"MISSING IN PARTITION ({len(comparison['missing_in_partition'])} blocks):")
-        for ts, block_type in comparison['missing_in_partition'][:10]:  # Show first 10
-            lines.append(f"  @{ts} ({block_type})")
+        for entry in comparison['missing_in_partition'][:10]:  # Show first 10
+            lines.append(f"  @{entry['timestamp']} ({entry['block_type']})")
         if len(comparison['missing_in_partition']) > 10:
             lines.append(f"  ... and {len(comparison['missing_in_partition']) - 10} more")
         lines.append("")
     
     if comparison['extra_in_partition']:
         lines.append(f"EXTRA IN PARTITION ({len(comparison['extra_in_partition'])} blocks):")
-        for ts, block_type in comparison['extra_in_partition'][:10]:  # Show first 10
-            lines.append(f"  @{ts} ({block_type})")
+        for entry in comparison['extra_in_partition'][:10]:  # Show first 10
+            lines.append(f"  @{entry['timestamp']} ({entry['block_type']})")
         if len(comparison['extra_in_partition']) > 10:
             lines.append(f"  ... and {len(comparison['extra_in_partition']) - 10} more")
         lines.append("")
     
-    if comparison['block_differences']:
-        lines.append(f"DIFFERING BLOCKS ({len(comparison['block_differences'])} blocks):")
+    if comparison['differing_blocks']:
+        lines.append(f"DIFFERING BLOCKS ({len(comparison['differing_blocks'])} blocks):")
         lines.append("")
         
         # Show details for each differing block (limit to first 20)
-        for i, (key, diff_info) in enumerate(list(comparison['block_differences'].items())[:20]):
-            ts, is_reactive = key
-            block_type = diff_info['type']
-            diffs = diff_info['diffs']
+        for diff_entry in comparison['differing_blocks'][:20]:
+            ts = diff_entry['timestamp']
+            block_type = diff_entry['block_type']
+            ref_block = diff_entry['reference_block']
+            part_block = diff_entry['partition_block']
+            diffs = diff_entry['differences']
+            
             lines.append(f"Block @{ts} ({block_type}):")
-            lines.extend(diffs)
+            lines.append("  REFERENCE:")
+            lines.append(f"    Labels: {len(ref_block['labels'])}")
+            lines.append(f"    Causes: {ref_block['causes']}")
+            lines.append(f"    Suppressions: {ref_block['suppressions']}")
+            lines.append("")
+            lines.append("  PARTITION:")
+            lines.append(f"    Labels: {len(part_block['labels'])}")
+            lines.append(f"    Causes: {part_block['causes']}")
+            lines.append(f"    Suppressions: {part_block['suppressions']}")
             lines.append("")
             
-        if len(comparison['block_differences']) > 20:
-            lines.append(f"... and {len(comparison['block_differences']) - 20} more differing blocks")
+            # Show differences
+            if diffs['labels']['only_in_reference'] or diffs['labels']['only_in_partition']:
+                lines.append("  Labels differ:")
+                if diffs['labels']['only_in_reference']:
+                    lines.append(f"    Only in reference: {len(diffs['labels']['only_in_reference'])} labels")
+                if diffs['labels']['only_in_partition']:
+                    lines.append(f"    Only in partition: {len(diffs['labels']['only_in_partition'])} labels")
+            
+            if diffs['causes']['only_in_reference'] or diffs['causes']['only_in_partition']:
+                lines.append("  Causes differ:")
+                if diffs['causes']['only_in_reference']:
+                    lines.append(f"    Only in reference: {diffs['causes']['only_in_reference']}")
+                if diffs['causes']['only_in_partition']:
+                    lines.append(f"    Only in partition: {diffs['causes']['only_in_partition']}")
+            
+            if diffs['suppressions']['only_in_reference'] or diffs['suppressions']['only_in_partition']:
+                lines.append("  Suppressions differ:")
+                if diffs['suppressions']['only_in_reference']:
+                    lines.append(f"    Only in reference: {diffs['suppressions']['only_in_reference']}")
+                if diffs['suppressions']['only_in_partition']:
+                    lines.append(f"    Only in partition: {diffs['suppressions']['only_in_partition']}")
+            
+            lines.append("")
+            
+        if len(comparison['differing_blocks']) > 20:
+            lines.append(f"... and {len(comparison['differing_blocks']) - 20} more differing blocks")
             lines.append("")
     
     return '\n'.join(lines)
@@ -545,7 +582,7 @@ def format_comparison_report(comparison: Dict) -> str:
 
 def save_comparison_report(comparison: Dict, output_file: str):
     """
-    Save comparison report to file.
+    Save comparison report to file (plaintext format).
     
     Args:
         comparison: Results from compare_enforcer_outputs
@@ -554,3 +591,15 @@ def save_comparison_report(comparison: Dict, output_file: str):
     report = format_comparison_report(comparison)
     with open(output_file, 'w') as f:
         f.write(report)
+
+
+def save_comparison_json(comparison: Dict, output_file: str):
+    """
+    Save comparison results as JSON.
+    
+    Args:
+        comparison: Results from compare_enforcer_outputs
+        output_file: Path to output JSON file
+    """
+    with open(output_file, 'w') as f:
+        json.dump(comparison, f, indent=2)

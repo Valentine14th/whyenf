@@ -6,6 +6,7 @@ Run enfguard on all partition MFOTL files in a directory.
 import os
 import sys
 import argparse
+import json
 import subprocess
 import time
 import difflib
@@ -17,6 +18,7 @@ try:
     from enforcer_diff import (
         compare_enforcer_outputs, 
         save_comparison_report,
+        save_comparison_json,
         parse_enforcer_output,
         combine_blocks_by_timestamp
     )
@@ -193,9 +195,9 @@ def compare_and_save_output(
             partition_output, 
             partition_name
         )
-        match_percentage = comparison['match_percentage']
+        match_percentage = comparison['summary']['match_percentage']
         output_matches = (
-            comparison['differing_blocks'] == 0 and 
+            comparison['summary']['differing_blocks'] == 0 and 
             len(comparison['missing_in_partition']) == 0 and
             len(comparison['extra_in_partition']) == 0
         )
@@ -204,9 +206,9 @@ def compare_and_save_output(
         if not output_matches and diff_subdir:
             diff_file = os.path.join(
                 diff_subdir,
-                f"{os.path.splitext(partition_name)[0]}_diff.txt"
+                f"{os.path.splitext(partition_name)[0]}_diff.json"
             )
-            save_comparison_report(comparison, diff_file)
+            save_comparison_json(comparison, diff_file)
             return output_matches, match_percentage
         
         return output_matches, match_percentage
@@ -290,7 +292,7 @@ def run_partition_enfguard(
                     match_pct_str = f"{match_percentage:.2f}%" if match_percentage is not None else "unknown"
                     print(f"[{partition_name}] {status} - Time: {elapsed_time:.2f}s - Output: ✗ DIFFERS from reference ({match_pct_str} matching)")
                     if diff_subdir:
-                        diff_file = os.path.join(diff_subdir, f"{os.path.splitext(partition_name)[0]}_diff.txt")
+                        diff_file = os.path.join(diff_subdir, f"{os.path.splitext(partition_name)[0]}_diff.json")
                         print(f"  Detailed diff saved to: {diff_file}")
             else:
                 print(f"[{partition_name}] {status} - Time: {elapsed_time:.2f}s")
@@ -393,9 +395,9 @@ def combine_and_compare_partitions(
         "combined_partitions"
     )
     
-    combined_match_pct = combined_comparison['match_percentage']
+    combined_match_pct = combined_comparison['summary']['match_percentage']
     combined_matches = (
-        combined_comparison['differing_blocks'] == 0 and 
+        combined_comparison['summary']['differing_blocks'] == 0 and 
         len(combined_comparison['missing_in_partition']) == 0 and
         len(combined_comparison['extra_in_partition']) == 0
     )
@@ -404,15 +406,15 @@ def combine_and_compare_partitions(
         print(f"✓ Combined partition output MATCHES reference (100.00%)")
     else:
         print(f"✗ Combined partition output DIFFERS from reference ({combined_match_pct:.2f}% matching)")
-        print(f"  Matching blocks: {combined_comparison['matching_blocks']}/{combined_comparison['total_blocks']}")
-        print(f"  Differing blocks: {combined_comparison['differing_blocks']}")
+        print(f"  Matching blocks: {combined_comparison['summary']['matching_blocks']}/{combined_comparison['summary']['total_blocks']}")
+        print(f"  Differing blocks: {combined_comparison['summary']['differing_blocks']}")
         print(f"  Missing in combined: {len(combined_comparison['missing_in_partition'])}")
         print(f"  Extra in combined: {len(combined_comparison['extra_in_partition'])}")
         
-        # Save combined diff report
+        # Save combined diff report as JSON
         if diff_subdir:
-            combined_diff_file = os.path.join(diff_subdir, "combined_partitions_diff.txt")
-            save_comparison_report(combined_comparison, combined_diff_file)
+            combined_diff_file = os.path.join(diff_subdir, "combined_partitions_diff.json")
+            save_comparison_json(combined_comparison, combined_diff_file)
             print(f"  Detailed diff saved to: {combined_diff_file}")
 
 
@@ -496,6 +498,117 @@ def print_summary(
                 print(f"  - {r['file']} (exit code {r['exit_code']})")
 
 
+def save_json_summary(
+    results: List[Dict],
+    reference_output: Optional[str],
+    reference_time: Optional[float],
+    json_file: str
+) -> None:
+    """
+    Save comprehensive results summary as JSON.
+    
+    Args:
+        results: List of partition result dictionaries
+        reference_output: Optional reference output for comparison
+        reference_time: Optional reference execution time
+        json_file: Path to save JSON summary
+    """
+    # Count results by status
+    success_count = sum(1 for r in results if r['exit_code'] == 0)
+    timeout_count = sum(1 for r in results if r['exit_code'] == 124)
+    failed_count = sum(1 for r in results if r['exit_code'] not in [0, 124])
+    
+    # Output comparison summary
+    matching_count = 0
+    differing_count = 0
+    differing_partitions = []
+    
+    if reference_output is not None:
+        matching_count = sum(1 for r in results if r.get('output_matches') is True)
+        differing_count = sum(1 for r in results if r.get('output_matches') is False)
+        
+        for r in results:
+            if r.get('output_matches') is False:
+                differing_partitions.append({
+                    'file': r['file'],
+                    'match_percentage': r.get('match_percentage')
+                })
+    
+    # Timing analysis
+    timing_info = None
+    successful_results = [r for r in results if r['exit_code'] == 0]
+    
+    if successful_results:
+        total_time = sum(r['time'] for r in successful_results)
+        avg_time = total_time / len(successful_results)
+        min_time = min(r['time'] for r in successful_results)
+        max_time = max(r['time'] for r in successful_results)
+        fastest_partition = min(successful_results, key=lambda r: r['time'])
+        slowest_partition = max(successful_results, key=lambda r: r['time'])
+        
+        timing_info = {
+            'total_sequential_time': total_time,
+            'average_time': avg_time,
+            'min_time': min_time,
+            'max_time': max_time,
+            'fastest_partition': {
+                'file': fastest_partition['file'],
+                'time': fastest_partition['time']
+            },
+            'slowest_partition': {
+                'file': slowest_partition['file'],
+                'time': slowest_partition['time']
+            }
+        }
+        
+        if reference_time is not None:
+            speedup = reference_time / max_time if max_time > 0 else 0
+            timing_info['reference_comparison'] = {
+                'reference_time': reference_time,
+                'speedup': speedup,
+                'faster': speedup >= 1
+            }
+    
+    # Failed partitions
+    failed_partitions = [
+        {'file': r['file'], 'exit_code': r['exit_code']}
+        for r in results
+        if r['exit_code'] not in [0, 124]
+    ]
+    
+    # Build summary structure
+    summary = {
+        'total_partitions': len(results),
+        'status_counts': {
+            'success': success_count,
+            'timeout': timeout_count,
+            'failed': failed_count
+        },
+        'output_comparison': {
+            'matching': matching_count,
+            'differing': differing_count,
+            'differing_partitions': differing_partitions
+        } if reference_output is not None else None,
+        'timing': timing_info,
+        'failed_partitions': failed_partitions,
+        'partition_details': [
+            {
+                'file': r['file'],
+                'status': r['status'],
+                'exit_code': r['exit_code'],
+                'time': r['time'],
+                'output_matches': r.get('output_matches'),
+                'match_percentage': r.get('match_percentage')
+            }
+            for r in results
+        ]
+    }
+    
+    # Save to JSON file
+    with open(json_file, 'w') as f:
+        json.dump(summary, f, indent=2)
+
+
 def run_enfguard_on_partitions(
     mfotl_dir: str, 
     sig_file: str, 
@@ -504,7 +617,8 @@ def run_enfguard_on_partitions(
     reference_mfotl: Optional[str] = None, 
     timeout: Optional[int] = None, 
     output_dir: Optional[str] = None, 
-    label: bool = False
+    label: bool = False,
+    json_summary: Optional[str] = None
 ) -> int:
     """
     Run enfguard on all MFOTL files in the given directory.
@@ -518,6 +632,7 @@ def run_enfguard_on_partitions(
         timeout: Optional timeout in seconds for each run
         output_dir: Optional directory to save partition outputs and diffs
         label: Optional flag to enable label output (shows which rules caused actions)
+        json_summary: Optional path to save JSON summary of results
     
     Returns:
         0 if all partitions succeeded, 1 otherwise
@@ -571,6 +686,11 @@ def run_enfguard_on_partitions(
     # Print summary
     print_summary(results, reference_output, reference_time)
     
+    # Save JSON summary if requested
+    if json_summary:
+        save_json_summary(results, reference_output, reference_time, json_summary)
+        print(f"\nJSON summary saved to: {json_summary}")
+    
     # Return exit code: 0 if all succeeded, 1 if any failed or timed out
     success_count = sum(1 for r in results if r['exit_code'] == 0)
     if success_count == len(results):
@@ -595,6 +715,8 @@ if __name__ == "__main__":
                        help='Directory to save partition outputs and diffs (optional)')
     parser.add_argument('-l', '--label', action='store_true',
                        help='Enable label output to show which rules caused actions (optional)')
+    parser.add_argument('-j', '--json-summary', default=None,
+                       help='Path to save JSON summary of results (optional)')
     
     args = parser.parse_args()
     
@@ -627,6 +749,7 @@ if __name__ == "__main__":
         args.reference,
         args.timeout,
         args.output_dir,
-        args.label
+        args.label,
+        args.json_summary
     )
     sys.exit(exit_code)
