@@ -697,7 +697,7 @@ def _print_common_nodes(partitions, partition_labels, node_labels=None):
     else:
         print("  No nodes are common to all partitions.\n")
 
-def compute_backward_partitions(net, node_labels, merge_strategy='by_descendants'):
+def compute_backward_partitions(net, node_labels, merge_strategy='by_descendants', max_merge_size=None):
     """
     Compute backward-reachable partitions from leaves (NOT successor-closed).
     
@@ -709,6 +709,7 @@ def compute_backward_partitions(net, node_labels, merge_strategy='by_descendants
         node_labels: Dict mapping node IDs to display labels
         merge_strategy: Name of the merging strategy to use (default: 'by_descendants')
                        Available: 'by_descendants', 'no_merge'
+        max_merge_size: Maximum number of partitions to merge together (None for unlimited)
     
     Returns:
         - sccs_nontrivial: List of non-trivial SCCs (size > 1) 
@@ -750,7 +751,7 @@ def compute_backward_partitions(net, node_labels, merge_strategy='by_descendants
     
     # Merge partitions with specified strategy
     merged_partitions, merged_labels, strategy_name = apply_merge_strategy(
-        partitions, partition_labels, sccs_lists, strategy=merge_strategy
+        partitions, partition_labels, sccs_lists, strategy=merge_strategy, max_merge_size=max_merge_size
     )
     
     # Filter SCCs to only non-trivial ones (size > 1) 
@@ -765,7 +766,8 @@ def compute_backward_partitions(net, node_labels, merge_strategy='by_descendants
     stats = {
         'initial_count': len(partitions),
         'merged_count': len(merged_partitions),
-        'strategy': strategy_name
+        'strategy': strategy_name,
+        'max_merge_size': max_merge_size
     }
     
     # Mark nodes in leaf/source SCCs

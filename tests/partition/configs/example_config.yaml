@@ -46,6 +46,9 @@ visualization:
   # Partition merging strategy
   # Options: "by_descendants" | "no_merge"
   merge_strategy: "by_descendants"
+  
+  # Maximum number of partitions to merge together, balanced split if over (optional)
+  max_merge_size: null
 
 # Partition execution options (running enfguard on each partition)
 partition_execution:

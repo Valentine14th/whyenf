@@ -26,7 +26,7 @@ from utils.html import (
 from utils.mfotl_parser import generate_partition_mfotl_files
 
 
-def create_graph(json_file, output_file, filter_polarity=False, merge_strategy=None, mfotl_file=None, output_dir='partition_output'):
+def create_graph(json_file, output_file, filter_polarity=False, merge_strategy=None, mfotl_file=None, output_dir='partition_output', max_merge_size=None):
     """Create PyVis graph from formula JSON showing causality rules.
     
     Args:
@@ -36,6 +36,7 @@ def create_graph(json_file, output_file, filter_polarity=False, merge_strategy=N
         merge_strategy: Partition merging strategy ('by_descendants' or 'no_merge') - required
         mfotl_file: Optional path to MFOTL file for generating partition files
         output_dir: Directory where all output files will be saved (default: 'partition_output')
+        max_merge_size: Maximum number of partitions to merge together (None for unlimited)
     """
     
     if merge_strategy is None:
@@ -87,7 +88,7 @@ def create_graph(json_file, output_file, filter_polarity=False, merge_strategy=N
     
     # Compute backward-reachable partitions and mark source/leaf SCCs
     nontrivial_sccs, node_to_scc_map, partitions, partition_labels, stats, leaf_nodes, source_nodes = compute_backward_partitions(
-        net, node_id_to_label, merge_strategy=merge_strategy
+        net, node_id_to_label, merge_strategy=merge_strategy, max_merge_size=max_merge_size
     )
     
     # Save the graph
@@ -156,10 +157,15 @@ if __name__ == "__main__":
   by_descendants - Merge partitions with identical descendant nodes
                    (excluding anchor leaf nodes). 
                     ''')
+    parser.add_argument('--max-merge-size', type=int, default=None,
+                       help='Maximum number of partitions to merge together (default: unlimited). '
+                            'If a merge would combine more than this many partitions, they will be '
+                            'split into balanced groups.')
     args = parser.parse_args()
     
     create_graph(args.input, args.output, 
                 filter_polarity=args.filter_polarity,
                 merge_strategy=args.merge_strategy,
                 mfotl_file=args.mfotl,
-                output_dir=args.output_dir)
+                output_dir=args.output_dir,
+                max_merge_size=args.max_merge_size)

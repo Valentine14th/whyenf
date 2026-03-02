@@ -263,10 +263,15 @@ const GraphPartitions = (function() {
         function updateStatsDisplay(stats) {
             var statsDiv = document.getElementById('partition-stats');
             if (statsDiv && stats) {
+                var maxMergeLine = '';
+                if (stats.max_merge_size !== null && stats.max_merge_size !== undefined) {
+                    maxMergeLine = '<div style="margin-bottom: 2px;">Max partitions per merge: ' + stats.max_merge_size + '</div>';
+                }
                 statsDiv.innerHTML = 
                     '<div style="margin-bottom: 2px;"><strong>Initial partitions:</strong> ' + stats.initial_count + '</div>' +
                     '<div style="margin-bottom: 2px;"><strong>After merging:</strong> ' + stats.merged_count + '</div>' +
-                    '<div style="font-style: italic;">Strategy: ' + stats.strategy + '</div>';
+                    '<div style="font-style: italic;"><strong>Strategy:</strong> ' + stats.strategy + '</div>' +
+                    maxMergeLine;
             }
         }
         

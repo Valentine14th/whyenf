@@ -243,6 +243,9 @@ def run_visualization(config, logger, workspace_root, json_file):
     if config['visualization'].get('filter_polarity'):
         cmd.append('--filter-polarity')
     
+    if config['visualization'].get('max_merge_size') is not None:
+        cmd.extend(['--max-merge-size', str(config['visualization']['max_merge_size'])])
+    
     if config['input'].get('mfotl'):
         cmd.extend(['--mfotl', config['input']['mfotl']])
     

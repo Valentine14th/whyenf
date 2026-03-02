@@ -22,6 +22,7 @@ visualization:
   enabled: true
   filter_polarity: true
   merge_strategy: "by_descendants"
+  max_merge_size: 20
 
 # Partition execution options (running enfguard on each partition)
 partition_execution:
