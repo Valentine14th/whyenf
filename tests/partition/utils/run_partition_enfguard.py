@@ -27,6 +27,16 @@ except ImportError:
     ENFORCER_DIFF_AVAILABLE = False
     print("Warning: enforcer_diff module not available, will use basic diff")
 
+# Import step-by-step executor module
+try:
+    from step_by_step_executor import (
+        run_enfguard_step_by_step
+    )
+    STEP_BY_STEP_AVAILABLE = True
+except ImportError:
+    STEP_BY_STEP_AVAILABLE = False
+    print("Warning: step_by_step_executor module not available, step-by-step mode disabled")
+
 
 def run_enfguard_command(
     mfotl_file: str,
@@ -246,10 +256,12 @@ def run_partition_enfguard(
     timeout: Optional[int],
     reference_output: Optional[str],
     output_subdir: Optional[str],
-    diff_subdir: Optional[str]
+    diff_subdir: Optional[str],
+    step_by_step: bool = False
 ) -> Dict:
     """
     Run enfguard on a single partition file and compare with reference.
+    Optionally also collect step-by-step timing information.
     
     Args:
         mfotl_file: Path to partition MFOTL file
@@ -261,6 +273,7 @@ def run_partition_enfguard(
         reference_output: Optional reference output for comparison
         output_subdir: Optional directory to save outputs
         diff_subdir: Optional directory to save diffs
+        step_by_step: If True, also collect per-timestamp timing information
         
     Returns:
         Dictionary with result information
@@ -297,6 +310,25 @@ def run_partition_enfguard(
             else:
                 print(f"[{partition_name}] {status} - Time: {elapsed_time:.2f}s")
             
+            # Collect step-by-step timing if requested
+            step_by_step_data = None
+            if step_by_step and STEP_BY_STEP_AVAILABLE:
+                print(f"[{partition_name}] Collecting step-by-step timing information...")
+                try:
+                    step_by_step_data = run_enfguard_step_by_step(
+                        str(mfotl_file),
+                        sig_file,
+                        log_file,
+                        func_file,
+                        label=label,
+                        timeout=timeout,
+                        output_dir=None
+                    )
+                    avg_time = step_by_step_data.get('avg_step_time', 0.0)
+                    print(f"[{partition_name}] Step-by-step: {step_by_step_data['total_steps']} steps, avg {avg_time:.3f}s/step")
+                except Exception as e:
+                    print(f"[{partition_name}] Warning: Step-by-step timing failed: {e}")
+            
             return {
                 'file': partition_name,
                 'status': status,
@@ -304,7 +336,8 @@ def run_partition_enfguard(
                 'time': elapsed_time,
                 'output_matches': output_matches,
                 'match_percentage': match_percentage,
-                'output': stdout
+                'output': stdout,
+                'step_by_step_timing': step_by_step_data
             }
             
         elif exit_code == 124:
@@ -324,7 +357,8 @@ def run_partition_enfguard(
             'time': elapsed_time,
             'output_matches': None,
             'match_percentage': None,
-            'output': None
+            'output': None,
+            'step_by_step_timing': None
         }
         
     except Exception as e:
@@ -336,7 +370,8 @@ def run_partition_enfguard(
             'time': 0,
             'output_matches': None,
             'match_percentage': None,
-            'output': None
+            'output': None,
+            'step_by_step_timing': None
         }
 
 
@@ -598,7 +633,8 @@ def save_json_summary(
                 'exit_code': r['exit_code'],
                 'time': r['time'],
                 'output_matches': r.get('output_matches'),
-                'match_percentage': r.get('match_percentage')
+                'match_percentage': r.get('match_percentage'),
+                'step_by_step_timing': r.get('step_by_step_timing')
             }
             for r in results
         ]
@@ -618,7 +654,8 @@ def run_enfguard_on_partitions(
     timeout: Optional[int] = None, 
     output_dir: Optional[str] = None, 
     label: bool = False,
-    json_summary: Optional[str] = None
+    json_summary: Optional[str] = None,
+    step_by_step: bool = False
 ) -> int:
     """
     Run enfguard on all MFOTL files in the given directory.
@@ -629,10 +666,11 @@ def run_enfguard_on_partitions(
         log_file: Path to log file
         func_file: Path to function file
         reference_mfotl: Optional reference MFOTL file to compare against
-        timeout: Optional timeout in seconds for each run
+        timeout: Optional timeout in seconds for each run (or per step if step_by_step)
         output_dir: Optional directory to save partition outputs and diffs
         label: Optional flag to enable label output (shows which rules caused actions)
         json_summary: Optional path to save JSON summary of results
+        step_by_step: Optional flag to enable step-by-step execution mode
     
     Returns:
         0 if all partitions succeeded, 1 otherwise
@@ -659,12 +697,14 @@ def run_enfguard_on_partitions(
         print(f"No .mfotl files found in {mfotl_dir}")
         return 0
     
-    print(f"RUNNING PARTITIONS ({len(mfotl_files)} files)")
+    mode_str = "STEP-BY-STEP" if step_by_step else "STANDARD"
+    print(f"RUNNING PARTITIONS ({len(mfotl_files)} files) - {mode_str} MODE")
     print(f"  Signature: {sig_file}")
     print(f"  Log: {log_file}")
     print(f"  Functions: {func_file}")
     if timeout:
-        print(f"  Timeout: {timeout}s per partition")
+        timeout_desc = "per step" if step_by_step else "per partition"
+        print(f"  Timeout: {timeout}s {timeout_desc}")
     
     # Run enfguard on all partition files
     results = []
@@ -672,7 +712,8 @@ def run_enfguard_on_partitions(
         result = run_partition_enfguard(
             mfotl_file, sig_file, log_file, func_file,
             label, timeout, reference_output,
-            output_subdir, diff_subdir
+            output_subdir, diff_subdir,
+            step_by_step=step_by_step
         )
         results.append(result)
     
@@ -717,6 +758,8 @@ if __name__ == "__main__":
                        help='Enable label output to show which rules caused actions (optional)')
     parser.add_argument('-j', '--json-summary', default=None,
                        help='Path to save JSON summary of results (optional)')
+    parser.add_argument('-s', '--step-by-step', action='store_true',
+                       help='Run enforcement in step-by-step mode, measuring time at each timestamp (optional)')
     
     args = parser.parse_args()
     
@@ -750,6 +793,7 @@ if __name__ == "__main__":
         args.timeout,
         args.output_dir,
         args.label,
-        args.json_summary
+        args.json_summary,
+        args.step_by_step
     )
     sys.exit(exit_code)

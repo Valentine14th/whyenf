@@ -65,6 +65,10 @@ def load_config(config_file):
     if config['output'].get('save_normalized_mfotl') is None:
         config['output']['save_normalized_mfotl'] = False
     
+    # Set defaults for partition execution
+    if config['partition_execution'].get('step_by_step') is None:
+        config['partition_execution']['step_by_step'] = False
+    
     # Auto-set partition directory if not specified
     if config['partition_execution'].get('enabled'):
         if config['partition_execution'].get('partition_dir') is None:
@@ -286,7 +290,8 @@ def run_visualization(config, logger, workspace_root, json_file):
 
 def run_partition_enforcement(config, logger, workspace_root, script_dir):
     """Run run_partition_enfguard.py on generated partitions."""
-    logger.section("STEP 2: RUNNING ENFORCEMENT ON PARTITIONS")
+    mode_str = "STEP-BY-STEP" if config['partition_execution'].get('step_by_step') else "STANDARD"
+    logger.section(f"STEP 2: RUNNING ENFORCEMENT ON PARTITIONS ({mode_str} MODE)")
     
     partition_dir = config['partition_execution']['partition_dir']
     
@@ -337,6 +342,10 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir):
     
     if config['partition_execution'].get('label'):
         cmd.append('-l')
+    
+    # Add step-by-step flag if enabled
+    if config['partition_execution'].get('step_by_step'):
+        cmd.append('-s')
     
     # Add JSON summary argument if enforcement_results specified
     enforcement_results_file = None

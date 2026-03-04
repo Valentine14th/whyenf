@@ -30,3 +30,4 @@ partition_execution:
   timeout: 300
   partition_dir: null
   label: true
+  step_by_step: false  # When true, ingest log file one timestamp at a time and measure enforcement time per step
