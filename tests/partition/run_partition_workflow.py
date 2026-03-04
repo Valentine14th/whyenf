@@ -414,7 +414,7 @@ def generate_step_by_step_plot(config, logger, workspace_root, script_dir, enfor
         logger.log(f"✗ Enforcement results file not found: {enforcement_results_file}", "ERROR")
         return False
     
-    # Use default plot filename
+    # Use default plot filename in plots subdirectory
     plot_filename = 'step_by_step_timing_plot.png'
     
     # Make absolute path
@@ -422,7 +422,11 @@ def generate_step_by_step_plot(config, logger, workspace_root, script_dir, enfor
     if not os.path.isabs(output_dir):
         output_dir = os.path.join(workspace_root, output_dir)
     
-    plot_file = os.path.join(output_dir, plot_filename)
+    # Create plots subdirectory
+    plots_dir = os.path.join(output_dir, 'plots')
+    os.makedirs(plots_dir, exist_ok=True)
+    
+    plot_file = os.path.join(plots_dir, plot_filename)
     
     # Build command to run plotting script
     plot_script = os.path.join(script_dir, 'utils', 'plot_step_by_step_timing.py')
@@ -494,7 +498,7 @@ def generate_complexity_plot(config, logger, workspace_root, script_dir, enforce
         logger.log(f"✗ Partition directory not found: {partition_dir}", "ERROR")
         return False
     
-    # Use default plot filename
+    # Use default plot filename in plots subdirectory
     plot_filename = 'complexity_vs_time_plot.png'
     
     # Make absolute path
@@ -502,7 +506,11 @@ def generate_complexity_plot(config, logger, workspace_root, script_dir, enforce
     if not os.path.isabs(output_dir):
         output_dir = os.path.join(workspace_root, output_dir)
     
-    plot_file = os.path.join(output_dir, plot_filename)
+    # Create plots subdirectory
+    plots_dir = os.path.join(output_dir, 'plots')
+    os.makedirs(plots_dir, exist_ok=True)
+    
+    plot_file = os.path.join(plots_dir, plot_filename)
     
     # Build command to run plotting script
     plot_script = os.path.join(script_dir, 'utils', 'plot_complexity_vs_time.py')
@@ -517,6 +525,81 @@ def generate_complexity_plot(config, logger, workspace_root, script_dir, enforce
         enforcement_results_file,
         partition_dir,
         '-o', plot_file
+    ]
+    
+    logger.log(f"Command: {' '.join(cmd)}")
+    
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=workspace_root,
+            timeout=30
+        )
+        
+        # Print script output
+        if result.stdout:
+            for line in result.stdout.strip().split('\n'):
+                logger.log(line)
+        
+        if result.returncode == 0:
+            logger.log(f"✓ Plot generated: {plot_file}", "SUCCESS")
+            return True
+        else:
+            logger.log(f"✗ Plot generation failed with exit code {result.returncode}", "ERROR")
+            if result.stderr:
+                logger.log(f"Error output: {result.stderr}", "ERROR")
+            return False
+    
+    except subprocess.TimeoutExpired:
+        logger.log("✗ Plot generation timed out", "ERROR")
+        return False
+    except Exception as e:
+        logger.log(f"✗ Plot generation failed: {e}", "ERROR")
+        return False
+
+
+def generate_diff_statistics_plot(config, logger, workspace_root, script_dir):
+    """Generate partition difference statistics plot from diff files."""
+    logger.section("STEP 5: GENERATING PARTITION DIFFERENCE STATISTICS PLOT")
+    
+    # Determine diff directory
+    output_dir = config['output']['directory']
+    if not os.path.isabs(output_dir):
+        output_dir = os.path.join(workspace_root, output_dir)
+    
+    diff_dir = os.path.join(output_dir, 'partition_outputs', 'diff')
+    
+    if not os.path.exists(diff_dir):
+        logger.log(f"✗ Diff directory not found: {diff_dir}", "ERROR")
+        return False
+    
+    # Check if there are any diff files
+    diff_files = list(Path(diff_dir).glob('*_diff.json'))
+    if not diff_files:
+        logger.log(f"✗ No diff files found in: {diff_dir}", "ERROR")
+        return False
+    
+    logger.log(f"Found {len(diff_files)} diff files")
+    
+    # Create plots subdirectory
+    plots_dir = os.path.join(output_dir, 'plots')
+    os.makedirs(plots_dir, exist_ok=True)
+    
+    plot_file = os.path.join(plots_dir, 'partition_differences_plot.png')
+    
+    # Build command to run plotting script
+    plot_script = os.path.join(script_dir, 'utils', 'plot_diff_stats.py')
+    
+    if not os.path.exists(plot_script):
+        logger.log(f"✗ Plotting script not found: {plot_script}", "ERROR")
+        return False
+    
+    cmd = [
+        sys.executable,
+        plot_script,
+        diff_dir
     ]
     
     logger.log(f"Command: {' '.join(cmd)}")
@@ -655,6 +738,11 @@ def run_workflow(config_file):
         os.path.exists(enforcement_results_file)):
         if not generate_complexity_plot(config, logger, workspace_root, script_dir, enforcement_results_file):
             logger.log("Warning: Failed to generate complexity plot, continuing...", "WARNING")
+    
+    # Step 5: Generate partition difference statistics plot if enforcement ran
+    if config['partition_execution'].get('enabled'):
+        if not generate_diff_statistics_plot(config, logger, workspace_root, script_dir):
+            logger.log("Warning: Failed to generate diff statistics plot, continuing...", "WARNING")
     
     # Final summary
     logger.section("WORKFLOW COMPLETE")

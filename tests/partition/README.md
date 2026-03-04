@@ -51,12 +51,19 @@ python run_workflow.py my_config.yaml
 
 ```
 output_directory/
-├── graph.html              # Interactive visualization
-├── workflow.log            # Execution log (latest run only)
-├── enforcement_results.txt # Detailed timing results
-└── mfotl/                  # Generated partition files
-    ├── formula_partition_1.mfotl
-    ├── formula_partition_2.mfotl
+├── graph.html                # Interactive visualization
+├── workflow.log              # Execution log (latest run only)
+├── enforcement_results.txt   # Detailed timing results
+├── mfotl/                    # Generated partition files
+│   ├── formula_partition_1.mfotl
+│   ├── formula_partition_2.mfotl
+│   └── ...
+├── plots/                    # Generated visualizations
+│   ├── step_by_step_timing_plot.png
+│   ├── complexity_vs_time_plot.png
+│   └── partition_differences_plot.png
+└── partition_outputs/        # Individual partition results
+    ├── diff/                 # Difference comparisons
     └── ...
 ```
 
@@ -71,10 +78,13 @@ output_directory/
 ### Optional
 - `input.log`, `input.functions` - Required only if `partition_execution.enabled: true`
 - `output.save_json` - Keep intermediate JSON (default: true)
+- `output.save_normalized_mfotl` - Save normalized MFOTL (default: false)
 - `output.workflow_log` - Workflow execution log name
 - `output.enforcement_results` - Enforcement results file name
 - `visualization.filter_polarity` - Filter polarity edges (default: false)
 - `partition_execution.timeout` - Timeout in seconds per partition
+- `partition_execution.step_by_step` - Enable step-by-step mode with timing plots (default: false)
+- `partition_execution.label` - Enable label output (default: false)
 
 ## Common Use Cases
 
