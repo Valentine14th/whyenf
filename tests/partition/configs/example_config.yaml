@@ -33,7 +33,10 @@ output:
   workflow_log: "workflow.log"
   
   # Detailed results file for partition enforcement (timing, success/failure)
-  enforcement_results: "enforcement_results.txt"
+  enforcement_results: "enforcement_results.json"
+  
+  # Whether to save normalized MFOTL file (pretty-printed version)
+  save_normalized_mfotl: false
 
 # Visualization & partitioning options
 visualization:
@@ -55,10 +58,17 @@ partition_execution:
   # Enable/disable running enfguard on partitions
   enabled: true
   
-  # Optional: Timeout in seconds for each partition
+  # Optional: Timeout in seconds for each partition (or per step if step_by_step is true)
   # If a partition takes longer than this, it will be killed
   timeout: 300
   
   # Directory containing partition MFOTL files (auto-set from output.directory/mfotl)
   # Leave null to use default: {output.directory}/mfotl
   partition_dir: null
+  
+  # Enable label output to show which rules caused actions
+  label: false
+  
+  # Enable step-by-step execution mode: ingest log file one timestamp at a time 
+  # and measure enforcement time per step (generates timing plot automatically)
+  step_by_step: false

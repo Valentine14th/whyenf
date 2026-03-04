@@ -406,6 +406,152 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir):
         return False
 
 
+def generate_step_by_step_plot(config, logger, workspace_root, script_dir, enforcement_results_file):
+    """Generate timing plot for step-by-step execution results."""
+    logger.section("STEP 3: GENERATING STEP-BY-STEP TIMING PLOT")
+    
+    if not os.path.exists(enforcement_results_file):
+        logger.log(f"✗ Enforcement results file not found: {enforcement_results_file}", "ERROR")
+        return False
+    
+    # Use default plot filename
+    plot_filename = 'step_by_step_timing_plot.png'
+    
+    # Make absolute path
+    output_dir = config['output']['directory']
+    if not os.path.isabs(output_dir):
+        output_dir = os.path.join(workspace_root, output_dir)
+    
+    plot_file = os.path.join(output_dir, plot_filename)
+    
+    # Build command to run plotting script
+    plot_script = os.path.join(script_dir, 'utils', 'plot_step_by_step_timing.py')
+    
+    if not os.path.exists(plot_script):
+        logger.log(f"✗ Plotting script not found: {plot_script}", "ERROR")
+        return False
+    
+    cmd = [
+        sys.executable,
+        plot_script,
+        enforcement_results_file,
+        '-o', plot_file
+    ]
+    
+    logger.log(f"Command: {' '.join(cmd)}")
+    
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=workspace_root,
+            timeout=30
+        )
+        
+        # Print script output
+        if result.stdout:
+            for line in result.stdout.strip().split('\n'):
+                logger.log(line)
+        
+        if result.returncode == 0:
+            logger.log(f"✓ Plot generated: {plot_file}", "SUCCESS")
+            return True
+        else:
+            logger.log(f"✗ Plot generation failed with exit code {result.returncode}", "ERROR")
+            if result.stderr:
+                logger.log(f"Error output: {result.stderr}", "ERROR")
+            return False
+    
+    except subprocess.TimeoutExpired:
+        logger.log("✗ Plot generation timed out", "ERROR")
+        return False
+    except Exception as e:
+        logger.log(f"✗ Plot generation failed: {e}", "ERROR")
+        return False
+
+
+def generate_complexity_plot(config, logger, workspace_root, script_dir, enforcement_results_file):
+    """Generate complexity (rules/LETs) vs time plot for partition enforcement."""
+    logger.section("STEP 4: GENERATING COMPLEXITY VS TIME PLOT")
+    
+    if not os.path.exists(enforcement_results_file):
+        logger.log(f"✗ Enforcement results file not found: {enforcement_results_file}", "ERROR")
+        return False
+    
+    # Determine partition directory
+    partition_dir = config['partition_execution'].get('partition_dir')
+    if not partition_dir:
+        # Use default: output_dir/mfotl
+        output_dir = config['output']['directory']
+        if not os.path.isabs(output_dir):
+            output_dir = os.path.join(workspace_root, output_dir)
+        partition_dir = os.path.join(output_dir, 'mfotl')
+    elif not os.path.isabs(partition_dir):
+        partition_dir = os.path.join(workspace_root, partition_dir)
+    
+    if not os.path.exists(partition_dir):
+        logger.log(f"✗ Partition directory not found: {partition_dir}", "ERROR")
+        return False
+    
+    # Use default plot filename
+    plot_filename = 'complexity_vs_time_plot.png'
+    
+    # Make absolute path
+    output_dir = config['output']['directory']
+    if not os.path.isabs(output_dir):
+        output_dir = os.path.join(workspace_root, output_dir)
+    
+    plot_file = os.path.join(output_dir, plot_filename)
+    
+    # Build command to run plotting script
+    plot_script = os.path.join(script_dir, 'utils', 'plot_complexity_vs_time.py')
+    
+    if not os.path.exists(plot_script):
+        logger.log(f"✗ Plotting script not found: {plot_script}", "ERROR")
+        return False
+    
+    cmd = [
+        sys.executable,
+        plot_script,
+        enforcement_results_file,
+        partition_dir,
+        '-o', plot_file
+    ]
+    
+    logger.log(f"Command: {' '.join(cmd)}")
+    
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=workspace_root,
+            timeout=30
+        )
+        
+        # Print script output
+        if result.stdout:
+            for line in result.stdout.strip().split('\n'):
+                logger.log(line)
+        
+        if result.returncode == 0:
+            logger.log(f"✓ Plot generated: {plot_file}", "SUCCESS")
+            return True
+        else:
+            logger.log(f"✗ Plot generation failed with exit code {result.returncode}", "ERROR")
+            if result.stderr:
+                logger.log(f"Error output: {result.stderr}", "ERROR")
+            return False
+    
+    except subprocess.TimeoutExpired:
+        logger.log("✗ Plot generation timed out", "ERROR")
+        return False
+    except Exception as e:
+        logger.log(f"✗ Plot generation failed: {e}", "ERROR")
+        return False
+
+
 def run_workflow(config_file):
     """Execute the complete workflow based on config."""
     # Load configuration
@@ -479,11 +625,36 @@ def run_workflow(config_file):
         logger.log("Visualization step skipped (disabled in config)")
     
     # Step 2: Run partition enforcement if enabled
+    enforcement_results_file = None
     if config['partition_execution'].get('enabled'):
         if not run_partition_enforcement(config, logger, workspace_root, script_dir):
             success = False
+        else:
+            # Get enforcement results file path for plotting
+            if config['output'].get('enforcement_results'):
+                enforcement_results_file = config['output']['enforcement_results']
+                if not os.path.isabs(enforcement_results_file):
+                    output_dir_abs = config['output']['directory']
+                    if not os.path.isabs(output_dir_abs):
+                        output_dir_abs = os.path.join(workspace_root, output_dir_abs)
+                    enforcement_results_file = os.path.join(output_dir_abs, enforcement_results_file)
     else:
         logger.log("Partition enforcement step skipped (disabled in config)")
+    
+    # Step 3: Generate step-by-step timing plot if enabled and results exist
+    if (config['partition_execution'].get('enabled') and 
+        config['partition_execution'].get('step_by_step') and 
+        enforcement_results_file and 
+        os.path.exists(enforcement_results_file)):
+        if not generate_step_by_step_plot(config, logger, workspace_root, script_dir, enforcement_results_file):
+            logger.log("Warning: Failed to generate timing plot, continuing...", "WARNING")
+    
+    # Step 4: Generate complexity vs time plot if enforcement ran
+    if (config['partition_execution'].get('enabled') and 
+        enforcement_results_file and 
+        os.path.exists(enforcement_results_file)):
+        if not generate_complexity_plot(config, logger, workspace_root, script_dir, enforcement_results_file):
+            logger.log("Warning: Failed to generate complexity plot, continuing...", "WARNING")
     
     # Final summary
     logger.section("WORKFLOW COMPLETE")

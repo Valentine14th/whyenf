@@ -22,7 +22,7 @@ visualization:
   enabled: true
   filter_polarity: true
   merge_strategy: "by_descendants"
-  max_merge_size: 20
+  #max_merge_size: 20
 
 # Partition execution options (running enfguard on each partition)
 partition_execution:
@@ -30,4 +30,4 @@ partition_execution:
   timeout: 300
   partition_dir: null
   label: true
-  step_by_step: false  # When true, ingest log file one timestamp at a time and measure enforcement time per step
+  step_by_step: true  # When true, ingest log file one timestamp at a time and measure enforcement time per step

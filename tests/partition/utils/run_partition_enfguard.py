@@ -703,8 +703,8 @@ def run_enfguard_on_partitions(
     print(f"  Log: {log_file}")
     print(f"  Functions: {func_file}")
     if timeout:
-        timeout_desc = "per step" if step_by_step else "per partition"
-        print(f"  Timeout: {timeout}s {timeout_desc}")
+        timeout_scope = "per step" if step_by_step else "per partition"
+        print(f"  Timeout: {timeout}s {timeout_scope}")
     
     # Run enfguard on all partition files
     results = []
