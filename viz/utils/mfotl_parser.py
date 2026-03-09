@@ -245,6 +245,9 @@ def generate_partition_mfotl_files(mfotl_file, partitions, partition_labels, rul
         if not partition_mfotl_rules:
             continue
         
+        # Sort rules by their original index to maintain file order
+        partition_mfotl_rules.sort(key=lambda rule: rule['index'])
+        
         # Extract referenced LET definitions (preserving original order)
         rules_text = " ".join(rule['text'] for rule in partition_mfotl_rules)
         referenced_lets, referenced_order = extract_referenced_lets(rules_text, let_definitions, let_order)
