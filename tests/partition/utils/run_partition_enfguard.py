@@ -143,24 +143,22 @@ def run_reference_enfguard(
         
         if exit_code == 0:
             print(f"✓ SUCCESS - Time: {elapsed_time:.2f}s")
-            
-            # Save reference output if output_subdir specified
-            if output_subdir:
-                ref_output_file = os.path.join(output_subdir, "reference_output.txt")
-                with open(ref_output_file, 'w') as f:
-                    f.write(stdout)
-                print(f"  Saved output to: {ref_output_file}")
-            
+            # Save reference output
+            save_partition_output("reference.mfotl", stdout, output_subdir)
             print()
             return stdout, elapsed_time
             
         elif exit_code == 124:
             print(f"⏱ TIMEOUT - Time: {elapsed_time:.2f}s")
+            # Save timeout reference output
+            save_partition_output("reference.mfotl", stdout, output_subdir, label="timeout")
         else:
             print(f"✗ FAILED (exit code {exit_code}) - Time: {elapsed_time:.2f}s")
             print("Error output:")
             for line in stderr.split('\n')[:10]:
                 print(f"  {line}")
+            # Save failure reference output
+            save_partition_output("reference.mfotl", stdout, output_subdir, label="failure")
                 
     except Exception as e:
         print(f"✗ EXCEPTION: {e}")
@@ -169,82 +167,96 @@ def run_reference_enfguard(
     return None, None
 
 
-def compare_and_save_output(
+def get_partition_id(partition_name: str) -> str:
+    """
+    Extract partition identifier from partition filename.
+    E.g., 'mfotl_1106.mfotl' -> '1106'
+    
+    Args:
+        partition_name: Name of partition file
+        
+    Returns:
+        Partition identifier string
+    """
+    # Remove extension
+    base_name = os.path.splitext(partition_name)[0]
+    # Extract number part (assumes format like 'mfotl_1106')
+    parts = base_name.split('_')
+    if len(parts) > 1:
+        return parts[-1]  # Return the last part after underscore
+    return base_name  # Fallback to full name if no underscore
+
+
+def compare_and_save_diff(
     partition_name: str,
     partition_output: str,
     reference_output: str,
-    output_subdir: Optional[str],
     diff_subdir: Optional[str]
 ) -> Tuple[bool, Optional[float]]:
     """
-    Compare partition output with reference and save results.
+    Compare partition output with reference and save diff results.
     
     Args:
         partition_name: Name of partition file
         partition_output: Partition output string
         reference_output: Reference output string
-        output_subdir: Directory to save outputs
         diff_subdir: Directory to save diffs
         
     Returns:
         Tuple of (output_matches, match_percentage)
     """
-    # Save partition output
-    if output_subdir:
+    # Compare outputs using enforcer_diff
+    comparison = compare_enforcer_outputs(
+        reference_output, 
+        partition_output, 
+        partition_name
+    )
+    match_percentage = comparison['summary']['match_percentage']
+    output_matches = (
+        comparison['summary']['differing_blocks'] == 0 and 
+        len(comparison['missing_in_partition']) == 0 and
+        len(comparison['extra_in_partition']) == 0
+    )
+    
+    # Save specialized diff report if outputs differ
+    if not output_matches and diff_subdir:
+        partition_id = get_partition_id(partition_name)
+        diff_file = os.path.join(
+            diff_subdir,
+            f"diff_{partition_id}.json"
+        )
+        save_comparison_json(comparison, diff_file)
+    
+    return output_matches, match_percentage
+
+
+def save_partition_output(
+    partition_name: str,
+    output: str,
+    output_subdir: str,
+    label: str = ""
+) -> None:
+    """
+    Save partition output to file.
+    
+    Args:
+        partition_name: Name of partition file
+        output: Output string to save
+        output_subdir: Directory to save output
+        label: Optional label for the output file (e.g., "partial")
+    """
+    if output_subdir and output:
+        partition_id = get_partition_id(partition_name)
         partition_output_file = os.path.join(
             output_subdir, 
-            f"{os.path.splitext(partition_name)[0]}_output.txt"
+            f"output_{partition_id}_{label}.txt" if label else f"output_{partition_id}.txt"
         )
         with open(partition_output_file, 'w') as f:
-            f.write(partition_output)
-    
-    # Compare outputs
-    if ENFORCER_DIFF_AVAILABLE:
-        comparison = compare_enforcer_outputs(
-            reference_output, 
-            partition_output, 
-            partition_name
-        )
-        match_percentage = comparison['summary']['match_percentage']
-        output_matches = (
-            comparison['summary']['differing_blocks'] == 0 and 
-            len(comparison['missing_in_partition']) == 0 and
-            len(comparison['extra_in_partition']) == 0
-        )
+            f.write(output)
         
-        # Save specialized diff report if outputs differ
-        if not output_matches and diff_subdir:
-            diff_file = os.path.join(
-                diff_subdir,
-                f"{os.path.splitext(partition_name)[0]}_diff.json"
-            )
-            save_comparison_json(comparison, diff_file)
-            return output_matches, match_percentage
-        
-        return output_matches, match_percentage
-    else:
-        # Fall back to basic string comparison
-        output_matches = (partition_output == reference_output)
-        
-        # Save basic unified diff if outputs differ
-        if not output_matches and diff_subdir:
-            diff_file = os.path.join(
-                diff_subdir,
-                f"{os.path.splitext(partition_name)[0]}_diff.txt"
-            )
-            ref_lines = reference_output.splitlines(keepends=True)
-            part_lines = partition_output.splitlines(keepends=True)
-            diff = difflib.unified_diff(
-                ref_lines,
-                part_lines,
-                fromfile='reference',
-                tofile=partition_name,
-                lineterm='\n'
-            )
-            with open(diff_file, 'w') as f:
-                f.writelines(diff)
-        
-        return output_matches, None
+        # Print message based on whether this is partial output
+        if label:
+            print(f"  Saved {label} output to: {partition_output_file}")
 
 
 def run_partition_enfguard(
@@ -289,14 +301,17 @@ def run_partition_enfguard(
         if exit_code == 0:
             status = "✓ SUCCESS"
             
+            # Always save partition output if output_subdir is provided
+            save_partition_output(partition_name, stdout, output_subdir)
+            
             # Compare with reference if available
             output_matches = None
             match_percentage = None
             
             if reference_output is not None:
-                output_matches, match_percentage = compare_and_save_output(
+                output_matches, match_percentage = compare_and_save_diff(
                     partition_name, stdout, reference_output, 
-                    output_subdir, diff_subdir
+                    diff_subdir
                 )
                 
                 if output_matches:
@@ -305,7 +320,8 @@ def run_partition_enfguard(
                     match_pct_str = f"{match_percentage:.2f}%" if match_percentage is not None else "unknown"
                     print(f"[{partition_name}] {status} - Time: {elapsed_time:.2f}s - Output: ✗ DIFFERS from reference ({match_pct_str} matching)")
                     if diff_subdir:
-                        diff_file = os.path.join(diff_subdir, f"{os.path.splitext(partition_name)[0]}_diff.json")
+                        partition_id = get_partition_id(partition_name)
+                        diff_file = os.path.join(diff_subdir, f"diff_{partition_id}.json")
                         print(f"  Detailed diff saved to: {diff_file}")
             else:
                 print(f"[{partition_name}] {status} - Time: {elapsed_time:.2f}s")
@@ -343,13 +359,20 @@ def run_partition_enfguard(
         elif exit_code == 124:
             status = "⏱ TIMEOUT"
             print(f"[{partition_name}] {status} - Time: {elapsed_time:.2f}s")
+            
+            # Save output even if timed out (there may be partial output)
+            save_partition_output(partition_name, stdout, output_subdir, label="timeout")
         else:
             status = f"✗ FAILED (exit code {exit_code})"
             print(f"[{partition_name}] {status} - Time: {elapsed_time:.2f}s")
             print("Error output:")
             for line in stderr.split('\n')[:10]:
                 print(f"  {line}")
+            
+            # Save output even if failed (there may be partial output)
+            save_partition_output(partition_name, stdout, output_subdir, label="failure")
         
+        # Return results for timeout/failed cases (no comparison)
         return {
             'file': partition_name,
             'status': status,
@@ -357,7 +380,7 @@ def run_partition_enfguard(
             'time': elapsed_time,
             'output_matches': None,
             'match_percentage': None,
-            'output': None,
+            'output': stdout if stdout else None,
             'step_by_step_timing': None
         }
         

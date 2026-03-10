@@ -15,6 +15,51 @@ import yaml
 from datetime import datetime
 from pathlib import Path
 
+# CONFIGURATION CONSTANTS
+
+# Default output filenames
+DEFAULT_GRAPH_HTML = 'graph.html'
+DEFAULT_WORKFLOW_LOG = 'workflow.log'
+DEFAULT_ENFORCEMENT_RESULTS = 'enforcement_results.json'
+
+# Directory names
+DIR_VIZ = 'viz'
+DIR_MFOTL = 'mfotl'
+DIR_PARTITION_OUTPUTS = 'partition_outputs'
+DIR_PLOTS = 'plots'
+DIR_DIFF = 'diff'
+DEFAULT_OUTPUT_BASE = 'tests/partition/results'
+
+# File patterns and extensions
+FILE_PATTERN_MFOTL = '*.mfotl'
+FILE_PATTERN_DIFF = '*_diff.json'
+FILE_EXT_JSON = '.json'
+FILE_EXT_NORMALIZED = '_normalized.mfotl'
+FILE_EXT_TMP = '.tmp'
+
+# Plot filenames
+PLOT_STEP_BY_STEP_TIMING = 'step_by_step_timing_plot.png'
+PLOT_COMPLEXITY_VS_TIME = 'complexity_vs_time_plot.png'
+PLOT_PARTITION_DIFFERENCES = 'partition_differences_plot.png'
+
+# Timeouts (seconds)
+TIMEOUT_PLOT_GENERATION = 30
+
+# Logging
+LOG_SEPARATOR_LENGTH = 80
+LOG_LEVEL_INFO = "INFO"
+LOG_LEVEL_ERROR = "ERROR"
+LOG_LEVEL_SUCCESS = "SUCCESS"
+LOG_LEVEL_WARNING = "WARNING"
+
+# Subprocess settings
+PYTHON_UNBUFFERED = '1'
+LINE_BUFFER_SIZE = 1
+
+# Mode strings
+MODE_STEP_BY_STEP = "STEP-BY-STEP"
+MODE_STANDARD = "STANDARD"
+
 
 class WorkflowLogger:
     """Simple logger that writes to both console and file."""
@@ -38,7 +83,7 @@ class WorkflowLogger:
                 f.write(log_line + '\n')
     
     def section(self, title):
-        separator = "=" * 80
+        separator = "=" * LOG_SEPARATOR_LENGTH
         self.log(separator)
         self.log(title)
         self.log(separator)
@@ -54,6 +99,9 @@ def load_config(config_file):
     for field in required_fields:
         if field not in config:
             raise ValueError(f"Missing required field in config: {field}")
+    
+    # construct output dir
+    config['output']['directory'] = os.path.join(DEFAULT_OUTPUT_BASE, config['name'])
     
     # Set defaults
     if 'partition_execution' not in config:
@@ -73,7 +121,7 @@ def load_config(config_file):
     if config['partition_execution'].get('enabled'):
         if config['partition_execution'].get('partition_dir') is None:
             config['partition_execution']['partition_dir'] = os.path.join(
-                config['output']['directory'], 'mfotl'
+                config['output']['directory'], DIR_MFOTL
             )
     
     return config
@@ -97,7 +145,7 @@ def generate_json(config, logger, workspace_root):
     # Determine JSON output path (absolute)
     json_file = os.path.join(
         output_dir,
-        os.path.splitext(os.path.basename(mfotl_file))[0] + '.json'
+        os.path.splitext(os.path.basename(mfotl_file))[0] + FILE_EXT_JSON
     )
     
     # Build enfguard command
@@ -132,9 +180,9 @@ def generate_json(config, logger, workspace_root):
         return json_file
         
     except subprocess.CalledProcessError as e:
-        logger.log(f"✗ JSON generation failed with exit code {e.returncode}", "ERROR")
+        logger.log(f"✗ JSON generation failed with exit code {e.returncode}", LOG_LEVEL_ERROR)
         if e.stderr:
-            logger.log(f"stderr: {e.stderr}", "ERROR")
+            logger.log(f"stderr: {e.stderr}", LOG_LEVEL_ERROR)
         return None
 
 
@@ -156,11 +204,11 @@ def generate_normalized_mfotl(config, logger, workspace_root, script_dir):
     # Determine normalized MFOTL output path (absolute)
     normalized_file = os.path.join(
         output_dir,
-        os.path.splitext(os.path.basename(mfotl_file))[0] + '_normalized.mfotl'
+        os.path.splitext(os.path.basename(mfotl_file))[0] + FILE_EXT_NORMALIZED
     )
     
     # Create temp file for raw enfguard output
-    temp_file = normalized_file + '.tmp'
+    temp_file = normalized_file + FILE_EXT_TMP
     
     # Build enfguard command (same as JSON generation but without -json flag)
     enfguard_binary = os.path.join(workspace_root, 'enfguard')
@@ -210,9 +258,9 @@ def generate_normalized_mfotl(config, logger, workspace_root, script_dir):
         return normalized_file
         
     except subprocess.CalledProcessError as e:
-        logger.log(f"✗ Normalized MFOTL generation failed with exit code {e.returncode}", "ERROR")
+        logger.log(f"✗ Normalized MFOTL generation failed with exit code {e.returncode}", LOG_LEVEL_ERROR)
         if e.stderr:
-            logger.log(f"stderr: {e.stderr}", "ERROR")
+            logger.log(f"stderr: {e.stderr}", LOG_LEVEL_ERROR)
         # Clean up temp file if it exists
         if os.path.exists(temp_file):
             os.remove(temp_file)
@@ -230,10 +278,10 @@ def run_visualization(config, logger, workspace_root, json_file):
     if not os.path.isabs(output_dir):
         output_dir = os.path.join(workspace_root, output_dir)
     
-    output_html = config['output']['graph_html']
+    output_html = DEFAULT_GRAPH_HTML
     
     # Build command
-    viz_script = os.path.join(workspace_root, 'viz', 'visualize_graph.py')
+    viz_script = os.path.join(workspace_root, DIR_VIZ, 'visualize_graph.py')
     
     cmd = [
         sys.executable,  # Use current Python interpreter
@@ -263,7 +311,7 @@ def run_visualization(config, logger, workspace_root, json_file):
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            bufsize=1,  # Line buffering for real-time output
+            bufsize=LINE_BUFFER_SIZE,  # Line buffering for real-time output
             cwd=workspace_root
         )
         
@@ -277,20 +325,20 @@ def run_visualization(config, logger, workspace_root, json_file):
         return_code = process.wait()
         
         if return_code == 0:
-            logger.log("✓ Visualization completed successfully", "SUCCESS")
+            logger.log("✓ Visualization completed successfully", LOG_LEVEL_SUCCESS)
             return True
         else:
-            logger.log(f"✗ Visualization failed with exit code {return_code}", "ERROR")
+            logger.log(f"✗ Visualization failed with exit code {return_code}", LOG_LEVEL_ERROR)
             return False
         
     except Exception as e:
-        logger.log(f"✗ Visualization failed: {e}", "ERROR")
+        logger.log(f"✗ Visualization failed: {e}", LOG_LEVEL_ERROR)
         return False
 
 
 def run_partition_enforcement(config, logger, workspace_root, script_dir):
     """Run run_partition_enfguard.py on generated partitions."""
-    mode_str = "STEP-BY-STEP" if config['partition_execution'].get('step_by_step') else "STANDARD"
+    mode_str = MODE_STEP_BY_STEP if config['partition_execution'].get('step_by_step') else MODE_STANDARD
     logger.section(f"STEP 2: RUNNING ENFORCEMENT ON PARTITIONS ({mode_str} MODE)")
     
     partition_dir = config['partition_execution']['partition_dir']
@@ -300,15 +348,15 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir):
         partition_dir = os.path.join(workspace_root, partition_dir)
     
     if not os.path.exists(partition_dir):
-        logger.log(f"✗ Partition directory not found: {partition_dir}", "ERROR")
+        logger.log(f"✗ Partition directory not found: {partition_dir}", LOG_LEVEL_ERROR)
         return False
     
     # Count partition files
-    partition_files = list(Path(partition_dir).glob("*.mfotl"))
+    partition_files = list(Path(partition_dir).glob(FILE_PATTERN_MFOTL))
     logger.log(f"Found {len(partition_files)} partition files")
     
     if not partition_files:
-        logger.log("✗ No partition files found", "ERROR")
+        logger.log("✗ No partition files found", LOG_LEVEL_ERROR)
         return False
     
     # Create output directory for partition outputs and diffs
@@ -316,7 +364,7 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir):
     if not os.path.isabs(output_dir):
         output_dir = os.path.join(workspace_root, output_dir)
     
-    partition_outputs_dir = os.path.join(output_dir, 'partition_outputs')
+    partition_outputs_dir = os.path.join(output_dir, DIR_PARTITION_OUTPUTS)
     os.makedirs(partition_outputs_dir, exist_ok=True)
     logger.log(f"Output directory: {partition_outputs_dir}")
     
@@ -347,19 +395,16 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir):
     if config['partition_execution'].get('step_by_step'):
         cmd.append('-s')
     
-    # Add JSON summary argument if enforcement_results specified
-    enforcement_results_file = None
-    if config['output'].get('enforcement_results'):
-        enforcement_results_file = config['output']['enforcement_results']
-        # Make absolute if relative
-        if not os.path.isabs(enforcement_results_file):
-            output_dir = config['output']['directory']
-            if not os.path.isabs(output_dir):
-                output_dir = os.path.join(workspace_root, output_dir)
-            enforcement_results_file = os.path.join(output_dir, enforcement_results_file)
-        
-        # Add json-summary argument
-        cmd.extend(['-j', enforcement_results_file])
+    # Add JSON summary argument (always enabled with fixed filename)
+    enforcement_results_file = DEFAULT_ENFORCEMENT_RESULTS
+    # Make absolute
+    output_dir = config['output']['directory']
+    if not os.path.isabs(output_dir):
+        output_dir = os.path.join(workspace_root, output_dir)
+    enforcement_results_file = os.path.join(output_dir, enforcement_results_file)
+    
+    # Add json-summary argument
+    cmd.extend(['-j', enforcement_results_file])
     
     logger.log(f"Command: {' '.join(cmd)}")
     logger.log("")  # Empty line before output
@@ -367,7 +412,7 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir):
     try:
         # Set environment to disable Python output buffering
         env = os.environ.copy()
-        env['PYTHONUNBUFFERED'] = '1'
+        env['PYTHONUNBUFFERED'] = PYTHON_UNBUFFERED
         
         # Run command with real-time output (line buffering)
         process = subprocess.Popen(
@@ -375,7 +420,7 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir):
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            bufsize=1,  # Line buffering for real-time output
+            bufsize=LINE_BUFFER_SIZE,  # Line buffering for real-time output
             env=env,
             cwd=workspace_root
         )
@@ -390,19 +435,18 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir):
         return_code = process.wait()
         
         # JSON summary is saved by run_partition_enfguard.py itself
-        if enforcement_results_file:
-            logger.log(f"Enforcement results summary saved to: {enforcement_results_file}")
+        logger.log(f"Enforcement results summary saved to: {enforcement_results_file}")
         
         if return_code == 0:
-            logger.log("✓ All partitions ran successfully", "SUCCESS")
+            logger.log("✓ All partitions ran successfully", LOG_LEVEL_SUCCESS)
             return True
         else:
-            logger.log(f"✗ Some partitions failed or timed out (exit code {return_code})", "ERROR")
-            logger.log("See detailed results above for which partitions failed", "ERROR")
+            logger.log(f"✗ Some partitions failed or timed out (exit code {return_code})", LOG_LEVEL_ERROR)
+            logger.log("See detailed results above for which partitions failed", LOG_LEVEL_ERROR)
             return False
         
     except Exception as e:
-        logger.log(f"✗ Partition enforcement failed: {e}", "ERROR")
+        logger.log(f"✗ Partition enforcement failed: {e}", LOG_LEVEL_ERROR)
         return False
 
 
@@ -411,11 +455,11 @@ def generate_step_by_step_plot(config, logger, workspace_root, script_dir, enfor
     logger.section("STEP 3: GENERATING STEP-BY-STEP TIMING PLOT")
     
     if not os.path.exists(enforcement_results_file):
-        logger.log(f"✗ Enforcement results file not found: {enforcement_results_file}", "ERROR")
+        logger.log(f"✗ Enforcement results file not found: {enforcement_results_file}", LOG_LEVEL_ERROR)
         return False
     
     # Use default plot filename in plots subdirectory
-    plot_filename = 'step_by_step_timing_plot.png'
+    plot_filename = PLOT_STEP_BY_STEP_TIMING
     
     # Make absolute path
     output_dir = config['output']['directory']
@@ -480,7 +524,7 @@ def generate_complexity_plot(config, logger, workspace_root, script_dir, enforce
     logger.section("STEP 4: GENERATING COMPLEXITY VS TIME PLOT")
     
     if not os.path.exists(enforcement_results_file):
-        logger.log(f"✗ Enforcement results file not found: {enforcement_results_file}", "ERROR")
+        logger.log(f"✗ Enforcement results file not found: {enforcement_results_file}", LOG_LEVEL_ERROR)
         return False
     
     # Determine partition directory
@@ -490,16 +534,16 @@ def generate_complexity_plot(config, logger, workspace_root, script_dir, enforce
         output_dir = config['output']['directory']
         if not os.path.isabs(output_dir):
             output_dir = os.path.join(workspace_root, output_dir)
-        partition_dir = os.path.join(output_dir, 'mfotl')
+        partition_dir = os.path.join(output_dir, DIR_MFOTL)
     elif not os.path.isabs(partition_dir):
         partition_dir = os.path.join(workspace_root, partition_dir)
     
     if not os.path.exists(partition_dir):
-        logger.log(f"✗ Partition directory not found: {partition_dir}", "ERROR")
+        logger.log(f"✗ Partition directory not found: {partition_dir}", LOG_LEVEL_ERROR)
         return False
     
     # Use default plot filename in plots subdirectory
-    plot_filename = 'complexity_vs_time_plot.png'
+    plot_filename = PLOT_COMPLEXITY_VS_TIME
     
     # Make absolute path
     output_dir = config['output']['directory']
@@ -507,7 +551,7 @@ def generate_complexity_plot(config, logger, workspace_root, script_dir, enforce
         output_dir = os.path.join(workspace_root, output_dir)
     
     # Create plots subdirectory
-    plots_dir = os.path.join(output_dir, 'plots')
+    plots_dir = os.path.join(output_dir, DIR_PLOTS)
     os.makedirs(plots_dir, exist_ok=True)
     
     plot_file = os.path.join(plots_dir, plot_filename)
@@ -516,7 +560,7 @@ def generate_complexity_plot(config, logger, workspace_root, script_dir, enforce
     plot_script = os.path.join(script_dir, 'utils', 'plot_complexity_vs_time.py')
     
     if not os.path.exists(plot_script):
-        logger.log(f"✗ Plotting script not found: {plot_script}", "ERROR")
+        logger.log(f"✗ Plotting script not found: {plot_script}", LOG_LEVEL_ERROR)
         return False
     
     cmd = [
@@ -535,7 +579,7 @@ def generate_complexity_plot(config, logger, workspace_root, script_dir, enforce
             capture_output=True,
             text=True,
             cwd=workspace_root,
-            timeout=30
+            timeout=TIMEOUT_PLOT_GENERATION
         )
         
         # Print script output
@@ -544,19 +588,19 @@ def generate_complexity_plot(config, logger, workspace_root, script_dir, enforce
                 logger.log(line)
         
         if result.returncode == 0:
-            logger.log(f"✓ Plot generated: {plot_file}", "SUCCESS")
+            logger.log(f"✓ Plot generated: {plot_file}", LOG_LEVEL_SUCCESS)
             return True
         else:
-            logger.log(f"✗ Plot generation failed with exit code {result.returncode}", "ERROR")
+            logger.log(f"✗ Plot generation failed with exit code {result.returncode}", LOG_LEVEL_ERROR)
             if result.stderr:
-                logger.log(f"Error output: {result.stderr}", "ERROR")
+                logger.log(f"Error output: {result.stderr}", LOG_LEVEL_ERROR)
             return False
     
     except subprocess.TimeoutExpired:
-        logger.log("✗ Plot generation timed out", "ERROR")
+        logger.log("✗ Plot generation timed out", LOG_LEVEL_ERROR)
         return False
     except Exception as e:
-        logger.log(f"✗ Plot generation failed: {e}", "ERROR")
+        logger.log(f"✗ Plot generation failed: {e}", LOG_LEVEL_ERROR)
         return False
 
 
@@ -569,31 +613,31 @@ def generate_diff_statistics_plot(config, logger, workspace_root, script_dir):
     if not os.path.isabs(output_dir):
         output_dir = os.path.join(workspace_root, output_dir)
     
-    diff_dir = os.path.join(output_dir, 'partition_outputs', 'diff')
+    diff_dir = os.path.join(output_dir, DIR_PARTITION_OUTPUTS, DIR_DIFF)
     
     if not os.path.exists(diff_dir):
-        logger.log(f"✗ Diff directory not found: {diff_dir}", "ERROR")
+        logger.log(f"✗ Diff directory not found: {diff_dir}", LOG_LEVEL_ERROR)
         return False
     
     # Check if there are any diff files
-    diff_files = list(Path(diff_dir).glob('*_diff.json'))
+    diff_files = list(Path(diff_dir).glob(FILE_PATTERN_DIFF))
     if not diff_files:
-        logger.log(f"✗ No diff files found in: {diff_dir}", "ERROR")
+        logger.log(f"✗ No diff files found in: {diff_dir}", LOG_LEVEL_ERROR)
         return False
     
     logger.log(f"Found {len(diff_files)} diff files")
     
     # Create plots subdirectory
-    plots_dir = os.path.join(output_dir, 'plots')
+    plots_dir = os.path.join(output_dir, DIR_PLOTS)
     os.makedirs(plots_dir, exist_ok=True)
     
-    plot_file = os.path.join(plots_dir, 'partition_differences_plot.png')
+    plot_file = os.path.join(plots_dir, PLOT_PARTITION_DIFFERENCES)
     
     # Build command to run plotting script
     plot_script = os.path.join(script_dir, 'utils', 'plot_diff_stats.py')
     
     if not os.path.exists(plot_script):
-        logger.log(f"✗ Plotting script not found: {plot_script}", "ERROR")
+        logger.log(f"✗ Plotting script not found: {plot_script}", LOG_LEVEL_ERROR)
         return False
     
     cmd = [
@@ -610,7 +654,7 @@ def generate_diff_statistics_plot(config, logger, workspace_root, script_dir):
             capture_output=True,
             text=True,
             cwd=workspace_root,
-            timeout=30
+            timeout=TIMEOUT_PLOT_GENERATION
         )
         
         # Print script output
@@ -619,19 +663,19 @@ def generate_diff_statistics_plot(config, logger, workspace_root, script_dir):
                 logger.log(line)
         
         if result.returncode == 0:
-            logger.log(f"✓ Plot generated: {plot_file}", "SUCCESS")
+            logger.log(f"✓ Plot generated: {plot_file}", LOG_LEVEL_SUCCESS)
             return True
         else:
-            logger.log(f"✗ Plot generation failed with exit code {result.returncode}", "ERROR")
+            logger.log(f"✗ Plot generation failed with exit code {result.returncode}", LOG_LEVEL_ERROR)
             if result.stderr:
-                logger.log(f"Error output: {result.stderr}", "ERROR")
+                logger.log(f"Error output: {result.stderr}", LOG_LEVEL_ERROR)
             return False
     
     except subprocess.TimeoutExpired:
-        logger.log("✗ Plot generation timed out", "ERROR")
+        logger.log("✗ Plot generation timed out", LOG_LEVEL_ERROR)
         return False
     except Exception as e:
-        logger.log(f"✗ Plot generation failed: {e}", "ERROR")
+        logger.log(f"✗ Plot generation failed: {e}", LOG_LEVEL_ERROR)
         return False
 
 
@@ -657,10 +701,8 @@ def run_workflow(config_file):
     # Create output directory fresh
     os.makedirs(output_dir, exist_ok=True)
     
-    # Setup logger
-    log_file = None
-    if config['output'].get('workflow_log'):
-        log_file = os.path.join(output_dir, config['output']['workflow_log'])
+    # Setup logger (always enabled with fixed filename)
+    log_file = os.path.join(output_dir, DEFAULT_WORKFLOW_LOG)
     
     logger = WorkflowLogger(log_file)
     
@@ -669,9 +711,7 @@ def run_workflow(config_file):
     logger.log(f"Config file: {config_file}")
     logger.log(f"Timestamp: {datetime.now().isoformat()}")
     logger.log(f"Workspace: {workspace_root}")
-    
-    if log_file:
-        logger.log(f"Log file: {log_file}")
+    logger.log(f"Log file: {log_file}")
     
     success = True
     json_file = None
@@ -703,7 +743,7 @@ def run_workflow(config_file):
     if config['output'].get('save_normalized_mfotl'):
         normalized_file = generate_normalized_mfotl(config, logger, workspace_root, script_dir)
         if not normalized_file:
-            logger.log("Warning: Failed to generate normalized MFOTL, continuing...", "WARNING")
+            logger.log("Warning: Failed to generate normalized MFOTL, continuing...", LOG_LEVEL_WARNING)
     else:
         logger.log("Visualization step skipped (disabled in config)")
     
@@ -714,13 +754,11 @@ def run_workflow(config_file):
             success = False
         else:
             # Get enforcement results file path for plotting
-            if config['output'].get('enforcement_results'):
-                enforcement_results_file = config['output']['enforcement_results']
-                if not os.path.isabs(enforcement_results_file):
-                    output_dir_abs = config['output']['directory']
-                    if not os.path.isabs(output_dir_abs):
-                        output_dir_abs = os.path.join(workspace_root, output_dir_abs)
-                    enforcement_results_file = os.path.join(output_dir_abs, enforcement_results_file)
+            enforcement_results_file = DEFAULT_ENFORCEMENT_RESULTS
+            output_dir_abs = config['output']['directory']
+            if not os.path.isabs(output_dir_abs):
+                output_dir_abs = os.path.join(workspace_root, output_dir_abs)
+            enforcement_results_file = os.path.join(output_dir_abs, enforcement_results_file)
     else:
         logger.log("Partition enforcement step skipped (disabled in config)")
     
@@ -730,19 +768,19 @@ def run_workflow(config_file):
         enforcement_results_file and 
         os.path.exists(enforcement_results_file)):
         if not generate_step_by_step_plot(config, logger, workspace_root, script_dir, enforcement_results_file):
-            logger.log("Warning: Failed to generate timing plot, continuing...", "WARNING")
+            logger.log("Warning: Failed to generate timing plot, continuing...", LOG_LEVEL_WARNING)
     
     # Step 4: Generate complexity vs time plot if enforcement ran
     if (config['partition_execution'].get('enabled') and 
         enforcement_results_file and 
         os.path.exists(enforcement_results_file)):
         if not generate_complexity_plot(config, logger, workspace_root, script_dir, enforcement_results_file):
-            logger.log("Warning: Failed to generate complexity plot, continuing...", "WARNING")
+            logger.log("Warning: Failed to generate complexity plot, continuing...", LOG_LEVEL_WARNING)
     
     # Step 5: Generate partition difference statistics plot if enforcement ran
     if config['partition_execution'].get('enabled'):
         if not generate_diff_statistics_plot(config, logger, workspace_root, script_dir):
-            logger.log("Warning: Failed to generate diff statistics plot, continuing...", "WARNING")
+            logger.log("Warning: Failed to generate diff statistics plot, continuing...", LOG_LEVEL_WARNING)
     
     # Final summary
     logger.section("WORKFLOW COMPLETE")
@@ -763,10 +801,10 @@ def run_workflow(config_file):
                 logger.log(f"{subindent}{file}")
     
     if success:
-        logger.log("\n✓ All enabled steps completed successfully", "SUCCESS")
+        logger.log("\n✓ All enabled steps completed successfully", LOG_LEVEL_SUCCESS)
         return 0
     else:
-        logger.log("\n✗ Some steps failed (see log above)", "ERROR")
+        logger.log("\n✗ Some steps failed (see log above)", LOG_LEVEL_ERROR)
         return 1
 
 

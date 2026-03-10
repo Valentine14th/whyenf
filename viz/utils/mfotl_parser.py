@@ -261,10 +261,10 @@ def generate_partition_mfotl_files(mfotl_file, partitions, partition_labels, rul
         # Extract line number from first leaf to use in filename
         line_number = extract_first_leaf_line_number(partition_label)
         if line_number:
-            output_path = os.path.join(mfotl_output_dir, f"{base_name}_partition_{line_number}.mfotl")
+            output_path = os.path.join(mfotl_output_dir, f"mfotl_{line_number}.mfotl")
         else:
             # Fallback to using partition index if no line number found
-            output_path = os.path.join(mfotl_output_dir, f"{base_name}_partition_{partition_idx}.mfotl")
+            output_path = os.path.join(mfotl_output_dir, f"mfotl_{partition_idx}.mfotl")
         
         with open(output_path, 'w') as f:
             f.write(mfotl_content)

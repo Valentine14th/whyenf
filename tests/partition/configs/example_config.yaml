@@ -19,21 +19,10 @@ input:
   functions: "ressources/minitwit/func.txt"
 
 # Output configuration
+# Note: Output directory is automatically set to tests/partition/results/<workflow_name>/
 output:
-  # Base directory for all outputs (graph, JSON, partition MFOTL files)
-  directory: "partition_output"
-  
-  # Name of the output HTML graph file
-  graph_html: "graph.html"
-  
   # Whether to save the intermediate JSON file (generated from MFOTL)
   save_json: true
-  
-  # Log file for the workflow execution
-  workflow_log: "workflow.log"
-  
-  # Detailed results file for partition enforcement (timing, success/failure)
-  enforcement_results: "enforcement_results.json"
   
   # Whether to save normalized MFOTL file (pretty-printed version)
   save_normalized_mfotl: false

@@ -1,19 +1,15 @@
 # Workflow name (used for logging/output identification)
-name: "minitwit_full"
+name: "minitwit"
 
 # Input files
 input:
-  mfotl: "ressources/minitwit/minitwit_gdpr_4.mfotl"
+  mfotl: "ressources/minitwit/minitwit_gdpr.mfotl"
   signature: "ressources/minitwit/minitwit_gdpr.sig"
-  log: "ressources/minitwit/minitwit_gdpr.log"
+  log: "ressources/minitwit/test_logs/minitwit_compliant.log"
   functions: "ressources/gdpr.py"
 
 # Output configuration
 output:
-  directory: "tests/partition/results/minitwit_full_output"
-  graph_html: "minitwit_graph.html"
-  workflow_log: "minitwit_full_output.log"
-  enforcement_results: "partition_enforcement_results.json"
   save_normalized_mfotl: true
   save_json: true
 
@@ -28,6 +24,5 @@ visualization:
 partition_execution:
   enabled: true
   timeout: 300
-  partition_dir: null
   label: true
-  step_by_step: true  # When true, ingest log file one timestamp at a time and measure enforcement time per step
+  step_by_step: false  # When true, ingest log file one timestamp at a time and measure enforcement time per step
