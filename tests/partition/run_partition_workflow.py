@@ -103,6 +103,31 @@ def load_config(config_file):
     # construct output dir
     config['output']['directory'] = os.path.join(DEFAULT_OUTPUT_BASE, config['name'])
     
+    # Process log configuration (support multiple logs or directory)
+    log_files = []
+    if 'logs' in config['input']:
+        # Multiple logs specified explicitly
+        log_files = config['input']['logs']
+    elif 'log_directory' in config['input']:
+        # Directory of log files
+        log_dir = config['input']['log_directory']
+        if os.path.isdir(log_dir):
+            # Find all .log files in the directory
+            log_files = sorted([
+                os.path.join(log_dir, f) 
+                for f in os.listdir(log_dir) 
+                if f.endswith('.log')
+            ])
+            if not log_files:
+                raise ValueError(f"No .log files found in directory: {log_dir}")
+        else:
+            raise ValueError(f"log_directory does not exist: {log_dir}")
+    else:
+        raise ValueError("Must specify either input.logs (list) or input.log_directory (directory path)")
+    
+    # Store processed log files
+    config['_processed_log_files'] = log_files
+    
     # Set defaults
     if 'partition_execution' not in config:
         config['partition_execution'] = {'enabled': False}
@@ -336,10 +361,19 @@ def run_visualization(config, logger, workspace_root, json_file):
         return False
 
 
-def run_partition_enforcement(config, logger, workspace_root, script_dir):
-    """Run run_partition_enfguard.py on generated partitions."""
+def run_partition_enforcement(config, logger, workspace_root, script_dir, log_file, log_output_subdir):
+    """Run run_partition_enfguard.py on generated partitions for a specific log file.
+    
+    Args:
+        config: Configuration dictionary
+        logger: WorkflowLogger instance
+        workspace_root: Root directory of workspace
+        script_dir: Directory containing the script
+        log_file: Path to the log file to use for enforcement
+        log_output_subdir: Subdirectory name for this log's outputs (e.g., "log_minitwit_compliant")
+    """
     mode_str = MODE_STEP_BY_STEP if config['partition_execution'].get('step_by_step') else MODE_STANDARD
-    logger.section(f"STEP 2: RUNNING ENFORCEMENT ON PARTITIONS ({mode_str} MODE)")
+    logger.log(f"Running enforcement on log: {os.path.basename(log_file)} ({mode_str} MODE)")
     
     partition_dir = config['partition_execution']['partition_dir']
     
@@ -359,12 +393,13 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir):
         logger.log("✗ No partition files found", LOG_LEVEL_ERROR)
         return False
     
-    # Create output directory for partition outputs and diffs
+    # Create output directory for this log's partition outputs and diffs
     output_dir = config['output']['directory']
     if not os.path.isabs(output_dir):
         output_dir = os.path.join(workspace_root, output_dir)
     
-    partition_outputs_dir = os.path.join(output_dir, DIR_PARTITION_OUTPUTS)
+    log_output_dir = os.path.join(output_dir, log_output_subdir)
+    partition_outputs_dir = os.path.join(log_output_dir, DIR_PARTITION_OUTPUTS)
     os.makedirs(partition_outputs_dir, exist_ok=True)
     logger.log(f"Output directory: {partition_outputs_dir}")
     
@@ -376,7 +411,7 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir):
         runner_script,
         partition_dir,
         '-sig', config['input']['signature'],
-        '-log', config['input']['log'],
+        '-log', log_file,
         '-func', config['input']['functions'],
         '-o', partition_outputs_dir  # Add output directory for saving outputs and diffs
     ]
@@ -395,13 +430,8 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir):
     if config['partition_execution'].get('step_by_step'):
         cmd.append('-s')
     
-    # Add JSON summary argument (always enabled with fixed filename)
-    enforcement_results_file = DEFAULT_ENFORCEMENT_RESULTS
-    # Make absolute
-    output_dir = config['output']['directory']
-    if not os.path.isabs(output_dir):
-        output_dir = os.path.join(workspace_root, output_dir)
-    enforcement_results_file = os.path.join(output_dir, enforcement_results_file)
+    # Add JSON summary argument (always enabled with fixed filename in log subdirectory)
+    enforcement_results_file = os.path.join(log_output_dir, DEFAULT_ENFORCEMENT_RESULTS)
     
     # Add json-summary argument
     cmd.extend(['-j', enforcement_results_file])
@@ -439,35 +469,33 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir):
         
         if return_code == 0:
             logger.log("✓ All partitions ran successfully", LOG_LEVEL_SUCCESS)
-            return True
+            return enforcement_results_file, log_output_dir
         else:
-            logger.log(f"✗ Some partitions failed or timed out (exit code {return_code})", LOG_LEVEL_ERROR)
-            logger.log("See detailed results above for which partitions failed", LOG_LEVEL_ERROR)
-            return False
+            logger.log(f"⚠ Some partitions failed or timed out (exit code {return_code})", LOG_LEVEL_WARNING)
+            logger.log("See detailed results above for which partitions failed", LOG_LEVEL_WARNING)
+            return enforcement_results_file, log_output_dir
         
     except Exception as e:
         logger.log(f"✗ Partition enforcement failed: {e}", LOG_LEVEL_ERROR)
-        return False
+        return None, None
 
 
-def generate_step_by_step_plot(config, logger, workspace_root, script_dir, enforcement_results_file):
-    """Generate timing plot for step-by-step execution results."""
-    logger.section("STEP 3: GENERATING STEP-BY-STEP TIMING PLOT")
+def generate_step_by_step_plot(config, logger, workspace_root, script_dir, enforcement_results_file, plots_dir):
+    """Generate timing plot for step-by-step execution results.
+    
+    Args:
+        plots_dir: Directory where the plot should be saved
+    """
+    logger.log("Generating step-by-step timing plot...")
     
     if not os.path.exists(enforcement_results_file):
         logger.log(f"✗ Enforcement results file not found: {enforcement_results_file}", LOG_LEVEL_ERROR)
         return False
     
-    # Use default plot filename in plots subdirectory
+    # Use default plot filename in provided plots directory
     plot_filename = PLOT_STEP_BY_STEP_TIMING
     
-    # Make absolute path
-    output_dir = config['output']['directory']
-    if not os.path.isabs(output_dir):
-        output_dir = os.path.join(workspace_root, output_dir)
-    
-    # Create plots subdirectory
-    plots_dir = os.path.join(output_dir, 'plots')
+    # Create plots subdirectory if it doesn't exist
     os.makedirs(plots_dir, exist_ok=True)
     
     plot_file = os.path.join(plots_dir, plot_filename)
@@ -519,39 +547,28 @@ def generate_step_by_step_plot(config, logger, workspace_root, script_dir, enfor
         return False
 
 
-def generate_complexity_plot(config, logger, workspace_root, script_dir, enforcement_results_file):
-    """Generate complexity (rules/LETs) vs time plot for partition enforcement."""
-    logger.section("STEP 4: GENERATING COMPLEXITY VS TIME PLOT")
+def generate_complexity_plot(config, logger, workspace_root, script_dir, enforcement_results_file, partition_dir, plots_dir):
+    """Generate complexity (rules/LETs) vs time plot for partition enforcement.
+    
+    Args:
+        enforcement_results_file: Path to enforcement results JSON
+        partition_dir: Directory containing partition MFOTL files
+        plots_dir: Directory where the plot should be saved
+    """
+    logger.log("Generating complexity vs time plot...")
     
     if not os.path.exists(enforcement_results_file):
         logger.log(f"✗ Enforcement results file not found: {enforcement_results_file}", LOG_LEVEL_ERROR)
         return False
     
-    # Determine partition directory
-    partition_dir = config['partition_execution'].get('partition_dir')
-    if not partition_dir:
-        # Use default: output_dir/mfotl
-        output_dir = config['output']['directory']
-        if not os.path.isabs(output_dir):
-            output_dir = os.path.join(workspace_root, output_dir)
-        partition_dir = os.path.join(output_dir, DIR_MFOTL)
-    elif not os.path.isabs(partition_dir):
-        partition_dir = os.path.join(workspace_root, partition_dir)
-    
     if not os.path.exists(partition_dir):
         logger.log(f"✗ Partition directory not found: {partition_dir}", LOG_LEVEL_ERROR)
         return False
     
-    # Use default plot filename in plots subdirectory
+    # Use default plot filename in provided plots directory
     plot_filename = PLOT_COMPLEXITY_VS_TIME
     
-    # Make absolute path
-    output_dir = config['output']['directory']
-    if not os.path.isabs(output_dir):
-        output_dir = os.path.join(workspace_root, output_dir)
-    
-    # Create plots subdirectory
-    plots_dir = os.path.join(output_dir, DIR_PLOTS)
+    # Create plots subdirectory if it doesn't exist
     os.makedirs(plots_dir, exist_ok=True)
     
     plot_file = os.path.join(plots_dir, plot_filename)
@@ -604,16 +621,14 @@ def generate_complexity_plot(config, logger, workspace_root, script_dir, enforce
         return False
 
 
-def generate_diff_statistics_plot(config, logger, workspace_root, script_dir):
-    """Generate partition difference statistics plot from diff files."""
-    logger.section("STEP 5: GENERATING PARTITION DIFFERENCE STATISTICS PLOT")
+def generate_diff_statistics_plot(config, logger, workspace_root, script_dir, diff_dir, plots_dir):
+    """Generate partition difference statistics plot from diff files.
     
-    # Determine diff directory
-    output_dir = config['output']['directory']
-    if not os.path.isabs(output_dir):
-        output_dir = os.path.join(workspace_root, output_dir)
-    
-    diff_dir = os.path.join(output_dir, DIR_PARTITION_OUTPUTS, DIR_DIFF)
+    Args:
+        diff_dir: Directory containing diff JSON files
+        plots_dir: Directory where the plot should be saved
+    """
+    logger.log("Generating partition difference statistics plot...")
     
     if not os.path.exists(diff_dir):
         logger.log(f"✗ Diff directory not found: {diff_dir}", LOG_LEVEL_ERROR)
@@ -627,8 +642,7 @@ def generate_diff_statistics_plot(config, logger, workspace_root, script_dir):
     
     logger.log(f"Found {len(diff_files)} diff files")
     
-    # Create plots subdirectory
-    plots_dir = os.path.join(output_dir, DIR_PLOTS)
+    # Create plots subdirectory if it doesn't exist
     os.makedirs(plots_dir, exist_ok=True)
     
     plot_file = os.path.join(plots_dir, PLOT_PARTITION_DIFFERENCES)
@@ -747,40 +761,63 @@ def run_workflow(config_file):
     else:
         logger.log("Visualization step skipped (disabled in config)")
     
-    # Step 2: Run partition enforcement if enabled
-    enforcement_results_file = None
+    # Step 2: Run partition enforcement if enabled (iterate over all logs)
     if config['partition_execution'].get('enabled'):
-        if not run_partition_enforcement(config, logger, workspace_root, script_dir):
-            success = False
-        else:
-            # Get enforcement results file path for plotting
-            enforcement_results_file = DEFAULT_ENFORCEMENT_RESULTS
-            output_dir_abs = config['output']['directory']
-            if not os.path.isabs(output_dir_abs):
-                output_dir_abs = os.path.join(workspace_root, output_dir_abs)
-            enforcement_results_file = os.path.join(output_dir_abs, enforcement_results_file)
+        log_files = config['_processed_log_files']
+        logger.section(f"STEP 2: RUNNING ENFORCEMENT ON PARTITIONS ({len(log_files)} log(s))")
+        
+        # Get partition directory (needed for plots)
+        partition_dir = config['partition_execution']['partition_dir']
+        if not os.path.isabs(partition_dir):
+            partition_dir = os.path.join(workspace_root, partition_dir)
+        
+        for log_idx, log_file in enumerate(log_files, 1):
+            # Create subdirectory name from log file basename (without extension)
+            log_basename = os.path.splitext(os.path.basename(log_file))[0]
+            log_output_subdir = f"log_{log_basename}"
+            
+            logger.log("")
+            logger.log(f"[{log_idx}/{len(log_files)}] Processing log: {os.path.basename(log_file)}")
+            logger.log(f"Output subdirectory: {log_output_subdir}")
+            logger.log("="*LOG_SEPARATOR_LENGTH)
+            
+            # Run enforcement for this log
+            enforcement_results_file, log_output_dir = run_partition_enforcement(
+                config, logger, workspace_root, script_dir, 
+                log_file, log_output_subdir
+            )
+            
+            if not enforcement_results_file:
+                logger.log(f"⚠ Enforcement failed for log: {os.path.basename(log_file)}", LOG_LEVEL_WARNING)
+                success = False
+                continue
+            
+            # Get subdirectories for this log
+            plots_dir = os.path.join(log_output_dir, DIR_PLOTS)
+            diff_dir = os.path.join(log_output_dir, DIR_PARTITION_OUTPUTS, DIR_DIFF)
+            
+            # Generate step-by-step timing plot if enabled and results exist
+            if (config['partition_execution'].get('step_by_step') and 
+                os.path.exists(enforcement_results_file)):
+                if not generate_step_by_step_plot(config, logger, workspace_root, script_dir, 
+                                                  enforcement_results_file, plots_dir):
+                    logger.log("Warning: Failed to generate timing plot, continuing...", LOG_LEVEL_WARNING)
+            
+            # Generate complexity vs time plot
+            if os.path.exists(enforcement_results_file):
+                if not generate_complexity_plot(config, logger, workspace_root, script_dir, 
+                                               enforcement_results_file, partition_dir, plots_dir):
+                    logger.log("Warning: Failed to generate complexity plot, continuing...", LOG_LEVEL_WARNING)
+            
+            # Generate partition difference statistics plot
+            if os.path.exists(diff_dir):
+                if not generate_diff_statistics_plot(config, logger, workspace_root, script_dir, 
+                                                     diff_dir, plots_dir):
+                    logger.log("Warning: Failed to generate diff statistics plot, continuing...", LOG_LEVEL_WARNING)
+            
+            logger.log(f"✓ Completed processing log: {os.path.basename(log_file)}")
     else:
         logger.log("Partition enforcement step skipped (disabled in config)")
-    
-    # Step 3: Generate step-by-step timing plot if enabled and results exist
-    if (config['partition_execution'].get('enabled') and 
-        config['partition_execution'].get('step_by_step') and 
-        enforcement_results_file and 
-        os.path.exists(enforcement_results_file)):
-        if not generate_step_by_step_plot(config, logger, workspace_root, script_dir, enforcement_results_file):
-            logger.log("Warning: Failed to generate timing plot, continuing...", LOG_LEVEL_WARNING)
-    
-    # Step 4: Generate complexity vs time plot if enforcement ran
-    if (config['partition_execution'].get('enabled') and 
-        enforcement_results_file and 
-        os.path.exists(enforcement_results_file)):
-        if not generate_complexity_plot(config, logger, workspace_root, script_dir, enforcement_results_file):
-            logger.log("Warning: Failed to generate complexity plot, continuing...", LOG_LEVEL_WARNING)
-    
-    # Step 5: Generate partition difference statistics plot if enforcement ran
-    if config['partition_execution'].get('enabled'):
-        if not generate_diff_statistics_plot(config, logger, workspace_root, script_dir):
-            logger.log("Warning: Failed to generate diff statistics plot, continuing...", LOG_LEVEL_WARNING)
     
     # Final summary
     logger.section("WORKFLOW COMPLETE")

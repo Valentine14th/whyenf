@@ -5,7 +5,15 @@ name: "minitwit"
 input:
   mfotl: "ressources/minitwit/minitwit_gdpr.mfotl"
   signature: "ressources/minitwit/minitwit_gdpr.sig"
-  log: "ressources/minitwit/test_logs/minitwit_compliant.log"
+  
+  # Option 1: Run on specific logs (explicit list)
+  logs:
+    - "ressources/minitwit/test_logs/minitwit_compliant.log"
+    - "ressources/minitwit/minitwit_gdpr.log"
+  
+  # Option 2: Process all log files in a directory
+  # log_directory: "ressources/minitwit/test_logs/"
+  
   functions: "ressources/gdpr.py"
 
 # Output configuration

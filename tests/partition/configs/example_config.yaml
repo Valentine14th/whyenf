@@ -12,14 +12,28 @@ input:
   # Signature file (defines predicates and their types)
   signature: "ressources/minitwit/minitwit_gdpr.sig"
   
-  # Log file for enforcement execution
-  log: "ressources/minitwit/log.txt"
+  # Log files for enforcement execution (two options):
+  
+  # Option 1: Multiple log files (explicit list)
+  logs:
+    - "ressources/minitwit/log1.txt"
+    - "ressources/minitwit/log2.txt"
+    - "ressources/minitwit/log3.txt"
+  
+  # Option 2: Directory containing log files (all .log files will be processed)
+  # log_directory: "ressources/minitwit/test_logs/"
   
   # Functions file for enforcement execution
   functions: "ressources/minitwit/func.txt"
 
 # Output configuration
+# Output configuration
 # Note: Output directory is automatically set to tests/partition/results/<workflow_name>/
+# When multiple logs are specified, results for each log will be in subdirectories:
+#   tests/partition/results/<workflow_name>/log_<log_basename>/
+#     ├── partition_outputs/  (enforcement outputs and diffs)
+#     ├── plots/              (timing and statistics plots)
+#     └── enforcement_results.json
 output:
   # Whether to save the intermediate JSON file (generated from MFOTL)
   save_json: true
