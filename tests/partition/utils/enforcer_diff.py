@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Specialized diff for enforcer outputs.
-Each timestamp has TWO blocks: one reactive and one proactive.
+Each timestamp may have reactive and/or proactive blocks.
 Blocks are matched by (timestamp, type) and compared separately.
 
 Features:
@@ -15,7 +15,7 @@ Block combining logic:
 - If one block does nothing but another has events, take the events
 - If multiple blocks have events, merge all causes and suppressions
 - Duplicates are removed while preserving order
-- Always ensures both reactive and proactive blocks exist for each timestamp
+- Only combines blocks that actually exist in the input
 """
 
 import json
@@ -31,20 +31,22 @@ class EnforcerBlock:
     raw_content: str
     lines: List[str]
     is_reactive: bool  # True for reactive, False for proactive
+    block_index: int = 0  # Index within (timestamp, type) - for handling multiple blocks of same type at same timestamp
     
     def __hash__(self):
-        return hash((self.timestamp, self.is_reactive))
+        return hash((self.timestamp, self.is_reactive, self.block_index))
     
     def __eq__(self, other):
         if not isinstance(other, EnforcerBlock):
             return False
-        return self.timestamp == other.timestamp and self.is_reactive == other.is_reactive
+        return self.timestamp == other.timestamp and self.is_reactive == other.is_reactive and self.block_index == other.block_index
 
 
 def parse_enforcer_output(output: str) -> List[EnforcerBlock]:
     """
     Parse enforcer output into blocks.
-    Each timestamp has TWO blocks: one reactive and one proactive.
+    Each timestamp may have 0, 1, or multiple blocks of each type (reactive and/or proactive).
+    Block indices are assigned based on the order blocks appear for each (timestamp, type).
     Label lines ([Enforcer:Label]) that precede an [Enforcer] block are included in that block.
     
     Args:
@@ -58,6 +60,7 @@ def parse_enforcer_output(output: str) -> List[EnforcerBlock]:
     current_timestamp = None
     current_is_reactive = None
     label_buffer = []  # Buffer for [Enforcer:Label] lines before next [Enforcer] block
+    block_counters = {}  # Track block count per (timestamp, is_reactive)
     
     for line in output.split('\n'):
         # Check if this is a label line
@@ -68,12 +71,18 @@ def parse_enforcer_output(output: str) -> List[EnforcerBlock]:
         elif line.startswith('[Enforcer]') and not line.startswith('[Enforcer:Label]'):
             # Save previous block if it exists
             if current_block_lines and current_timestamp is not None and current_is_reactive is not None:
+                # Determine block index
+                key = (current_timestamp, current_is_reactive)
+                block_index = block_counters.get(key, 0)
+                block_counters[key] = block_index + 1
+                
                 raw_content = '\n'.join(current_block_lines)
                 blocks.append(EnforcerBlock(
                     timestamp=current_timestamp,
                     raw_content=raw_content,
                     lines=current_block_lines.copy(),
-                    is_reactive=current_is_reactive
+                    is_reactive=current_is_reactive,
+                    block_index=block_index
                 ))
             
             # Start new block with buffered labels plus this line
@@ -103,12 +112,18 @@ def parse_enforcer_output(output: str) -> List[EnforcerBlock]:
     
     # Don't forget the last block
     if current_block_lines and current_timestamp is not None and current_is_reactive is not None:
+        # Determine block index
+        key = (current_timestamp, current_is_reactive)
+        block_index = block_counters.get(key, 0)
+        block_counters[key] = block_index + 1
+        
         raw_content = '\n'.join(current_block_lines)
         blocks.append(EnforcerBlock(
             timestamp=current_timestamp,
             raw_content=raw_content,
             lines=current_block_lines.copy(),
-            is_reactive=current_is_reactive
+            is_reactive=current_is_reactive,
+            block_index=block_index
         ))
     
     return blocks
@@ -200,8 +215,8 @@ def parse_block_actions(block: EnforcerBlock) -> Tuple[List[str], List[str]]:
 
 def combine_blocks(blocks: List[EnforcerBlock]) -> EnforcerBlock:
     """
-    Combine multiple enforcer blocks with the same timestamp AND type (reactive/proactive).
-    All blocks must be of the same type.
+    Combine multiple enforcer blocks with the same timestamp, type, AND block_index.
+    All blocks must have the same timestamp, type, and block_index (from different partitions).
     
     Logic:
     - If one block does nothing but another has events, take the events
@@ -209,7 +224,7 @@ def combine_blocks(blocks: List[EnforcerBlock]) -> EnforcerBlock:
     - Remove duplicates while preserving order
     
     Args:
-        blocks: List of EnforcerBlock objects with the same timestamp and type
+        blocks: List of EnforcerBlock objects with the same timestamp, type, and block_index
         
     Returns:
         A single combined EnforcerBlock
@@ -222,10 +237,11 @@ def combine_blocks(blocks: List[EnforcerBlock]) -> EnforcerBlock:
     
     timestamp = blocks[0].timestamp
     is_reactive = blocks[0].is_reactive
+    block_index = blocks[0].block_index
     
-    # Verify all blocks are of the same type
-    if not all(b.is_reactive == is_reactive for b in blocks):
-        raise ValueError("Cannot combine blocks of different types (reactive/proactive)")
+    # Verify all blocks have the same timestamp, type, and block_index
+    if not all(b.timestamp == timestamp and b.is_reactive == is_reactive and b.block_index == block_index for b in blocks):
+        raise ValueError("Cannot combine blocks with different timestamp, type, or block_index")
     
     # Collect all label lines from all blocks (they should appear before the [Enforcer] line)
     all_label_lines = []
@@ -289,28 +305,29 @@ def combine_blocks(blocks: List[EnforcerBlock]) -> EnforcerBlock:
         timestamp=timestamp,
         raw_content=raw_content,
         lines=lines,
-        is_reactive=is_reactive
+        is_reactive=is_reactive,
+        block_index=block_index
     )
 
 
 def combine_blocks_by_timestamp(blocks: List[EnforcerBlock]) -> List[EnforcerBlock]:
     """
-    Combine multiple blocks that share the same timestamp and type.
+    Combine multiple blocks that share the same timestamp, type, and block_index.
     Only combines blocks that actually exist in the input - does not create missing blocks.
-    Typically each timestamp has TWO blocks (reactive + proactive), but the last timestamp
-    may only have a reactive block.
+    Each timestamp may have 0, 1, or multiple blocks of each type (reactive/proactive).
+    Blocks are aligned by their block_index across partitions.
     
     Args:
         blocks: List of EnforcerBlock objects (may have duplicate timestamps)
         
     Returns:
-        List of combined EnforcerBlock objects sorted by (timestamp, is_reactive)
+        List of combined EnforcerBlock objects sorted by (timestamp, is_reactive, block_index)
     """
-    # Group blocks by (timestamp, is_reactive)
-    groups: Dict[Tuple[int, bool], List[EnforcerBlock]] = {}
+    # Group blocks by (timestamp, is_reactive, block_index)
+    groups: Dict[Tuple[int, bool, int], List[EnforcerBlock]] = {}
     
     for block in blocks:
-        key = (block.timestamp, block.is_reactive)
+        key = (block.timestamp, block.is_reactive, block.block_index)
         if key not in groups:
             groups[key] = []
         groups[key].append(block)
@@ -397,7 +414,8 @@ def compare_blocks(ref_block: EnforcerBlock, part_block: EnforcerBlock) -> Tuple
 def compare_enforcer_outputs(reference_output: str, partition_output: str, partition_name: str = "partition") -> Dict:
     """
     Compare two enforcer outputs block by block.
-    Each timestamp has TWO blocks (reactive and proactive) that are compared separately.
+    Each timestamp may have multiple blocks of each type that are compared separately.
+    Blocks are matched by (timestamp, type, block_index).
     
     Args:
         reference_output: Reference enforcer output
@@ -406,11 +424,11 @@ def compare_enforcer_outputs(reference_output: str, partition_output: str, parti
         
     Returns:
         Dictionary with comparison results including:
-        - total_blocks: Total number of blocks (2 per timestamp: reactive + proactive)
+        - total_blocks: Total number of unique (timestamp, block_type, block_index) tuples across both outputs
         - matching_blocks: Number of matching blocks
         - differing_blocks: Number of differing blocks
-        - missing_in_partition: List of dicts with timestamp and block_type
-        - extra_in_partition: List of dicts with timestamp and block_type
+        - missing_in_partition: List of dicts with timestamp, block_type, and block_index
+        - extra_in_partition: List of dicts with timestamp, block_type, and block_index
         - match_percentage: Percentage of matching blocks
         - differing_blocks_details: List of dicts with detailed diff info
     """
@@ -418,12 +436,12 @@ def compare_enforcer_outputs(reference_output: str, partition_output: str, parti
     ref_blocks = parse_enforcer_output(reference_output)
     part_blocks = parse_enforcer_output(partition_output)
     
-    # Create (timestamp, is_reactive)-indexed dictionaries
-    # Each timestamp has TWO blocks: one reactive and one proactive
-    ref_dict = {(block.timestamp, block.is_reactive): block for block in ref_blocks}
-    part_dict = {(block.timestamp, block.is_reactive): block for block in part_blocks}
+    # Create (timestamp, is_reactive, block_index)-indexed dictionaries
+    # Each timestamp may have multiple blocks of each type
+    ref_dict = {(block.timestamp, block.is_reactive, block.block_index): block for block in ref_blocks}
+    part_dict = {(block.timestamp, block.is_reactive, block.block_index): block for block in part_blocks}
     
-    # Find all unique (timestamp, is_reactive) keys
+    # Find all unique (timestamp, is_reactive, block_index) keys
     all_block_keys = sorted(set(ref_dict.keys()) | set(part_dict.keys()))
     
     # Compare blocks
@@ -434,7 +452,7 @@ def compare_enforcer_outputs(reference_output: str, partition_output: str, parti
     differing_blocks_details = []
     
     for key in all_block_keys:
-        ts, is_reactive = key
+        ts, is_reactive, block_index = key
         ref_block = ref_dict.get(key)
         part_block = part_dict.get(key)
         
@@ -450,6 +468,7 @@ def compare_enforcer_outputs(reference_output: str, partition_output: str, parti
                 diff_entry = {
                     "timestamp": ts,
                     "block_type": block_type,
+                    "block_index": block_index,
                     "reference_block": diff_dict["reference_block"],
                     "partition_block": diff_dict["partition_block"],
                     "differences": diff_dict["differences"]
@@ -459,13 +478,15 @@ def compare_enforcer_outputs(reference_output: str, partition_output: str, parti
             # Missing in partition
             missing_in_partition.append({
                 "timestamp": ts,
-                "block_type": block_type
+                "block_type": block_type,
+                "block_index": block_index
             })
         elif part_block and not ref_block:
             # Extra in partition
             extra_in_partition.append({
                 "timestamp": ts,
-                "block_type": block_type
+                "block_type": block_type,
+                "block_index": block_index
             })
     
     total_blocks = len(all_block_keys)
@@ -512,7 +533,7 @@ def format_comparison_report(comparison: Dict) -> str:
     if comparison['missing_in_partition']:
         lines.append(f"MISSING IN PARTITION ({len(comparison['missing_in_partition'])} blocks):")
         for entry in comparison['missing_in_partition'][:10]:  # Show first 10
-            lines.append(f"  @{entry['timestamp']} ({entry['block_type']})")
+            lines.append(f"  @{entry['timestamp']} ({entry['block_type']}, index={entry['block_index']})")
         if len(comparison['missing_in_partition']) > 10:
             lines.append(f"  ... and {len(comparison['missing_in_partition']) - 10} more")
         lines.append("")
@@ -520,7 +541,7 @@ def format_comparison_report(comparison: Dict) -> str:
     if comparison['extra_in_partition']:
         lines.append(f"EXTRA IN PARTITION ({len(comparison['extra_in_partition'])} blocks):")
         for entry in comparison['extra_in_partition'][:10]:  # Show first 10
-            lines.append(f"  @{entry['timestamp']} ({entry['block_type']})")
+            lines.append(f"  @{entry['timestamp']} ({entry['block_type']}, index={entry['block_index']})")
         if len(comparison['extra_in_partition']) > 10:
             lines.append(f"  ... and {len(comparison['extra_in_partition']) - 10} more")
         lines.append("")
@@ -533,11 +554,12 @@ def format_comparison_report(comparison: Dict) -> str:
         for diff_entry in comparison['differing_blocks'][:20]:
             ts = diff_entry['timestamp']
             block_type = diff_entry['block_type']
+            block_index = diff_entry['block_index']
             ref_block = diff_entry['reference_block']
             part_block = diff_entry['partition_block']
             diffs = diff_entry['differences']
             
-            lines.append(f"Block @{ts} ({block_type}):")
+            lines.append(f"Block @{ts} ({block_type}, index={block_index}):")
             lines.append("  REFERENCE:")
             lines.append(f"    Labels: {len(ref_block['labels'])}")
             lines.append(f"    Causes: {ref_block['causes']}")
