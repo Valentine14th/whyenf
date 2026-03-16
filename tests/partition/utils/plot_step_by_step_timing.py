@@ -56,37 +56,65 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None):
     for idx, partition in enumerate(partitions_with_timing):
         partition_name = partition['file'].replace('minitwit_gdpr_4_partition_', 'P').replace('.mfotl', '')
         steps = partition['step_by_step_timing']['steps']
-        batch_time = partition['time']
-        total_time = partition['step_by_step_timing']['total_time']
+        batch_time = partition['time_stats']['mean']
+        total_time = partition['step_by_step_timing']['total_time_stats']['mean']
         
         batch_times.append(batch_time)
         total_times.append(total_time)
         
-        # Extract step numbers and step times
+        # Extract step numbers and step times (use mean from stats)
         step_numbers = [s['step_number'] for s in steps]
-        step_times = [s['step_time'] for s in steps]
+        step_times = [s['step_time_stats']['mean'] for s in steps]
+        step_stds = [s['step_time_stats']['std'] for s in steps]
         
-        # Plot line for this partition
-        ax.plot(step_numbers, step_times, 
-                marker='o', markersize=4, 
-                linewidth=1.5, 
-                label=partition_name, 
-                color=colors[idx],
-                alpha=0.8)
+        # Check if multiple runs were performed (std > 0 indicates repeated runs)
+        num_runs = partition['step_by_step_timing'].get('num_runs', 1)
+        has_variance = num_runs > 1 and any(std > 0 for std in step_stds)
+        
+        if has_variance:
+            # Plot line with shaded error region (std)
+            ax.plot(step_numbers, step_times, 
+                    marker='o', markersize=4, 
+                    linewidth=1.5, 
+                    label=partition_name, 
+                    color=colors[idx],
+                    alpha=0.8)
+            
+            # Add shaded region for standard deviation
+            step_times_array = np.array(step_times)
+            step_stds_array = np.array(step_stds)
+            ax.fill_between(step_numbers, 
+                           step_times_array - step_stds_array, 
+                           step_times_array + step_stds_array,
+                           color=colors[idx], alpha=0.2)
+        else:
+            # Plot line without error region (single run)
+            ax.plot(step_numbers, step_times, 
+                    marker='o', markersize=4, 
+                    linewidth=1.5, 
+                    label=partition_name, 
+                    color=colors[idx],
+                    alpha=0.8)
     
     # Calculate average times for summary stats (but don't plot them)
     avg_batch_time = np.mean(batch_times)
     avg_total_time = np.mean(total_times)
     
+    # Check if any partition has multiple runs
+    any_multiple_runs = any(p['step_by_step_timing'].get('num_runs', 1) > 1 for p in partitions_with_timing)
+    
     # Formatting
     ax.set_xlabel('Step Number', fontsize=12, fontweight='bold')
     ax.set_ylabel('Time (seconds)', fontsize=12, fontweight='bold')
-    ax.set_title('Step-by-Step Enforcement Timing per Partition', fontsize=14, fontweight='bold')
+    title = 'Step-by-Step Enforcement Timing per Partition'
+    if any_multiple_runs:
+        title += ' (shaded regions show ±1 std dev)'
+    ax.set_title(title, fontsize=14, fontweight='bold')
     ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
     ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=9)
     
     # Set y-axis to log scale if there's a large range
-    step_times_all = [s['step_time'] for p in partitions_with_timing for s in p['step_by_step_timing']['steps']]
+    step_times_all = [s['step_time_stats']['mean'] for p in partitions_with_timing for s in p['step_by_step_timing']['steps']]
     if max(step_times_all) / min(step_times_all) > 100:
         ax.set_yscale('log')
         ax.set_ylabel('Time (seconds, log scale)', fontsize=12, fontweight='bold')
@@ -110,14 +138,23 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None):
     print("\nPer-Partition Details:")
     for idx, partition in enumerate(partitions_with_timing):
         partition_name = partition['file'].replace('minitwit_gdpr_4_partition_', 'P').replace('.mfotl', '')
-        batch_time = partition['time']
-        total_time = partition['step_by_step_timing']['total_time']
+        batch_time = partition['time_stats']['mean']
+        total_time_stats = partition['step_by_step_timing']['total_time_stats']
+        total_time = total_time_stats['mean']
         num_steps = partition['step_by_step_timing']['total_steps']
         avg_step = total_time / num_steps if num_steps > 0 else 0
         
-        print(f"  {partition_name:8s}: {num_steps:2d} steps | "
-              f"Batch: {batch_time:.3f}s | "
-              f"Total: {total_time:.3f}s | "
+        # Check if multiple runs were performed
+        num_runs = partition['step_by_step_timing'].get('num_runs', 1)
+        if num_runs > 1:
+            print(f"  {partition_name:8s}: {num_steps:2d} steps | "
+                  f"Batch: {batch_time:.3f}s | "
+                  f"Total: {total_time:.3f}s (±{total_time_stats['std']:.3f}s, {num_runs} runs) | "
+                  f"Avg/step: {avg_step:.3f}s")
+        else:
+            print(f"  {partition_name:8s}: {num_steps:2d} steps | "
+                  f"Batch: {batch_time:.3f}s | "
+                  f"Total: {total_time:.3f}s | "
               f"Avg/step: {avg_step:.4f}s")
 
 

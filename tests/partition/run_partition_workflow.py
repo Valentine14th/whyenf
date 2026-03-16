@@ -32,7 +32,7 @@ DEFAULT_OUTPUT_BASE = 'tests/partition/results'
 
 # File patterns and extensions
 FILE_PATTERN_MFOTL = '*.mfotl'
-FILE_PATTERN_DIFF = '*_diff.json'
+FILE_PATTERN_DIFF = '*diff*.json'  # Matches both 'diff_*.json' and '*_diff.json'
 FILE_EXT_JSON = '.json'
 FILE_EXT_NORMALIZED = '_normalized.mfotl'
 FILE_EXT_TMP = '.tmp'
@@ -41,6 +41,9 @@ FILE_EXT_TMP = '.tmp'
 PLOT_STEP_BY_STEP_TIMING = 'step_by_step_timing_plot.png'
 PLOT_COMPLEXITY_VS_TIME = 'complexity_vs_time_plot.png'
 PLOT_PARTITION_DIFFERENCES = 'partition_differences_plot.png'
+PLOT_MULTI_LOG_MATCHING_STATUS = 'summary_matching_status.png'
+PLOT_MULTI_LOG_SPEEDUP = 'summary_speedup.png'
+PLOT_MULTI_LOG_COMPLEXITY = 'summary_complexity_vs_time.png'
 
 # Timeouts (seconds)
 TIMEOUT_PLOT_GENERATION = 30
@@ -60,6 +63,10 @@ LINE_BUFFER_SIZE = 1
 MODE_STEP_BY_STEP = "STEP-BY-STEP"
 MODE_STANDARD = "STANDARD"
 
+
+# =============================================================================
+# CONFIGURATION AND LOGGING
+# =============================================================================
 
 class WorkflowLogger:
     """Simple logger that writes to both console and file."""
@@ -105,8 +112,8 @@ def load_config(config_file):
     
     # Process log configuration (support multiple logs or directory)
     log_files = []
-    if 'logs' in config['input']:
-        # Multiple logs specified explicitly
+    if 'logs' in config['input'] and config['input']['logs']:
+        # Multiple logs specified explicitly (and not empty/None)
         log_files = config['input']['logs']
     elif 'log_directory' in config['input']:
         # Directory of log files
@@ -142,6 +149,9 @@ def load_config(config_file):
     if config['partition_execution'].get('step_by_step') is None:
         config['partition_execution']['step_by_step'] = False
     
+    if config['partition_execution'].get('repeat_runs') is None:
+        config['partition_execution']['repeat_runs'] = 1
+    
     # Auto-set partition directory if not specified
     if config['partition_execution'].get('enabled'):
         if config['partition_execution'].get('partition_dir') is None:
@@ -151,6 +161,10 @@ def load_config(config_file):
     
     return config
 
+
+# =============================================================================
+# FILE GENERATION FUNCTIONS
+# =============================================================================
 
 def generate_json(config, logger, workspace_root):
     """Generate JSON from MFOTL using enfguard."""
@@ -292,6 +306,10 @@ def generate_normalized_mfotl(config, logger, workspace_root, script_dir):
         return None
 
 
+# =============================================================================
+# VISUALIZATION FUNCTIONS
+# =============================================================================
+
 def run_visualization(config, logger, workspace_root, json_file):
     """Run visualize_graph.py to generate partitions and graph."""
     logger.log("Generating visualization and partitions...")
@@ -360,6 +378,10 @@ def run_visualization(config, logger, workspace_root, json_file):
         logger.log(f"✗ Visualization failed: {e}", LOG_LEVEL_ERROR)
         return False
 
+
+# =============================================================================
+# ENFORCEMENT EXECUTION
+# =============================================================================
 
 def run_partition_enforcement(config, logger, workspace_root, script_dir, log_file, log_output_subdir):
     """Run run_partition_enfguard.py on generated partitions for a specific log file.
@@ -430,6 +452,10 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir, log_fi
     if config['partition_execution'].get('step_by_step'):
         cmd.append('-s')
     
+    # Add repeat runs if specified
+    if config['partition_execution'].get('repeat_runs'):
+        cmd.extend(['-r', str(config['partition_execution']['repeat_runs'])])
+    
     # Add JSON summary argument (always enabled with fixed filename in log subdirectory)
     enforcement_results_file = os.path.join(log_output_dir, DEFAULT_ENFORCEMENT_RESULTS)
     
@@ -479,6 +505,10 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir, log_fi
         logger.log(f"✗ Partition enforcement failed: {e}", LOG_LEVEL_ERROR)
         return None, None
 
+
+# =============================================================================
+# PLOTTING FUNCTIONS
+# =============================================================================
 
 def generate_step_by_step_plot(config, logger, workspace_root, script_dir, enforcement_results_file, plots_dir):
     """Generate timing plot for step-by-step execution results.
@@ -693,6 +723,125 @@ def generate_diff_statistics_plot(config, logger, workspace_root, script_dir, di
         return False
 
 
+def generate_multi_log_summary_plots(config, logger, workspace_root, script_dir, summary_file, output_dir):
+    """Generate summary plots across all logs.
+    
+    Args:
+        config: Configuration dictionary
+        logger: WorkflowLogger instance
+        workspace_root: Path to workspace root
+        script_dir: Path to script directory
+        summary_file: Path to multi_log_summary.json
+        output_dir: Base output directory containing log subdirectories
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    logger.log("Generating multi-log summary plots...")
+    
+    if not os.path.exists(summary_file):
+        logger.log(f"✗ Multi-log summary file not found: {summary_file}", LOG_LEVEL_ERROR)
+        return False
+    
+    # Find the mfotl directory
+    mfotl_dir = os.path.join(output_dir, DIR_MFOTL)
+    if not os.path.exists(mfotl_dir):
+        logger.log(f"✗ MFOTL directory not found: {mfotl_dir}", LOG_LEVEL_ERROR)
+        return False
+    
+    # Build command to run plotting script
+    plot_script = os.path.join(script_dir, 'utils', 'plot_multi_log_summary.py')
+    
+    if not os.path.exists(plot_script):
+        logger.log(f"✗ Plotting script not found: {plot_script}", LOG_LEVEL_ERROR)
+        return False
+    
+    # Output prefix for plots
+    plot_prefix = os.path.join(output_dir, 'summary')
+    
+    cmd = [
+        sys.executable,
+        plot_script,
+        summary_file,
+        output_dir,
+        mfotl_dir,
+        '-o', plot_prefix
+    ]
+    
+    logger.log(f"Command: {' '.join(cmd)}")
+    
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=workspace_root,
+            timeout=TIMEOUT_PLOT_GENERATION
+        )
+        
+        # Print script output
+        if result.stdout:
+            for line in result.stdout.strip().split('\n'):
+                logger.log(line)
+        
+        if result.returncode == 0:
+            logger.log(f"✓ Multi-log summary plots generated:", LOG_LEVEL_SUCCESS)
+            logger.log(f"  - {PLOT_MULTI_LOG_MATCHING_STATUS}")
+            logger.log(f"  - {PLOT_MULTI_LOG_SPEEDUP}")
+            logger.log(f"  - {PLOT_MULTI_LOG_COMPLEXITY}")
+            return True
+        else:
+            logger.log(f"✗ Plot generation failed with exit code {result.returncode}", LOG_LEVEL_ERROR)
+            if result.stderr:
+                logger.log(f"Error output: {result.stderr}", LOG_LEVEL_ERROR)
+            return False
+    
+    except subprocess.TimeoutExpired:
+        logger.log("✗ Plot generation timed out", LOG_LEVEL_ERROR)
+        return False
+    except Exception as e:
+        logger.log(f"✗ Plot generation failed: {e}", LOG_LEVEL_ERROR)
+        return False
+
+
+# =============================================================================
+# SUMMARY AND REPORTING
+# =============================================================================
+
+def load_enforcement_summary(enforcement_results_file, logger):
+    """Load high-level enforcement summary from results file, excluding partition details.
+    
+    Args:
+        enforcement_results_file: Path to enforcement results JSON file
+        logger: WorkflowLogger instance
+        
+    Returns:
+        Dictionary with high-level summary, or None if loading fails
+    """
+    if not os.path.exists(enforcement_results_file):
+        return None
+    
+    try:
+        with open(enforcement_results_file, 'r') as f:
+            enforcement_data = json.load(f)
+            # Extract only high-level summary, exclude partition_details
+            return {
+                'total_partitions': enforcement_data.get('total_partitions'),
+                'status_counts': enforcement_data.get('status_counts'),
+                'output_comparison': enforcement_data.get('output_comparison'),
+                'combined_output_comparison': enforcement_data.get('combined_output_comparison'),
+                'timing': enforcement_data.get('timing'),
+                'failed_partitions': enforcement_data.get('failed_partitions')
+            }
+    except Exception as e:
+        logger.log(f"Warning: Failed to load enforcement results: {e}", LOG_LEVEL_WARNING)
+        return None
+
+
+# =============================================================================
+# MAIN WORKFLOW ORCHESTRATOR
+# =============================================================================
+
 def run_workflow(config_file):
     """Execute the complete workflow based on config."""
     # Load configuration
@@ -762,6 +911,7 @@ def run_workflow(config_file):
         logger.log("Visualization step skipped (disabled in config)")
     
     # Step 2: Run partition enforcement if enabled (iterate over all logs)
+    log_results_summary = []
     if config['partition_execution'].get('enabled'):
         log_files = config['_processed_log_files']
         logger.section(f"STEP 2: RUNNING ENFORCEMENT ON PARTITIONS ({len(log_files)} log(s))")
@@ -790,7 +940,25 @@ def run_workflow(config_file):
             if not enforcement_results_file:
                 logger.log(f"⚠ Enforcement failed for log: {os.path.basename(log_file)}", LOG_LEVEL_WARNING)
                 success = False
+                log_results_summary.append({
+                    'log_file': os.path.basename(log_file),
+                    'log_path': log_file,
+                    'output_subdir': log_output_subdir,
+                    'status': 'failed',
+                    'enforcement_summary': None
+                })
                 continue
+            
+            # Load enforcement results summary (excluding partition details)
+            enforcement_summary = load_enforcement_summary(enforcement_results_file, logger)
+            
+            log_results_summary.append({
+                'log_file': os.path.basename(log_file),
+                'log_path': log_file,
+                'output_subdir': log_output_subdir,
+                'status': 'success',
+                'enforcement_summary': enforcement_summary
+            })
             
             # Get subdirectories for this log
             plots_dir = os.path.join(log_output_dir, DIR_PLOTS)
@@ -816,6 +984,31 @@ def run_workflow(config_file):
                     logger.log("Warning: Failed to generate diff statistics plot, continuing...", LOG_LEVEL_WARNING)
             
             logger.log(f"✓ Completed processing log: {os.path.basename(log_file)}")
+        
+        # Save multi-log summary if multiple logs were processed
+        if len(log_files) > 1:
+            logger.log("")
+            logger.log("Generating multi-log summary...")
+            summary_file = os.path.join(output_dir, "multi_log_summary.json")
+            
+            summary = {
+                'workflow_name': config['name'],
+                'timestamp': datetime.now().isoformat(),
+                'total_logs': len(log_files),
+                'successful_logs': sum(1 for r in log_results_summary if r['status'] == 'success'),
+                'failed_logs': sum(1 for r in log_results_summary if r['status'] == 'failed'),
+                'log_results': log_results_summary
+            }
+            
+            with open(summary_file, 'w') as f:
+                json.dump(summary, f, indent=2)
+            
+            logger.log(f"Multi-log summary saved to: {summary_file}")
+            
+            # Generate multi-log summary plots
+            if not generate_multi_log_summary_plots(config, logger, workspace_root, script_dir, 
+                                                     summary_file, output_dir):
+                logger.log("Warning: Failed to generate multi-log summary plots, continuing...", LOG_LEVEL_WARNING)
     else:
         logger.log("Partition enforcement step skipped (disabled in config)")
     
@@ -844,6 +1037,10 @@ def run_workflow(config_file):
         logger.log("\n✗ Some steps failed (see log above)", LOG_LEVEL_ERROR)
         return 1
 
+
+# =============================================================================
+# CLI ENTRY POINT
+# =============================================================================
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(

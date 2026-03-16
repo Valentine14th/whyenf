@@ -62,6 +62,7 @@ def plot_complexity_vs_time(json_file: str, mfotl_dir: str, output_file: str = N
     num_rules_list = []
     num_lets_list = []
     batch_times = []
+    batch_stds = []
     total_times = []
     
     for partition in partitions:
@@ -69,7 +70,8 @@ def plot_complexity_vs_time(json_file: str, mfotl_dir: str, output_file: str = N
         partition_name = partition_file.replace('minitwit_gdpr_4_partition_', 'P').replace('.mfotl', '')
         
         # Get timing data
-        batch_time = partition['time']
+        batch_time = partition['time_stats']['mean']
+        batch_std = partition['time_stats']['std']
         
         # Check if step-by-step timing exists
         has_step_timing = partition.get('step_by_step_timing') is not None
@@ -91,6 +93,7 @@ def plot_complexity_vs_time(json_file: str, mfotl_dir: str, output_file: str = N
         num_rules_list.append(num_rules)
         num_lets_list.append(num_lets)
         batch_times.append(batch_time)
+        batch_stds.append(batch_std)
         if total_time is not None:
             total_times.append(total_time)
     
@@ -106,7 +109,16 @@ def plot_complexity_vs_time(json_file: str, mfotl_dir: str, output_file: str = N
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
     
     # Plot 1: Number of Rules vs Time
-    ax1.scatter(num_rules_list, times_to_plot, s=100, alpha=0.6, color='steelblue', edgecolors='black', linewidth=1.5)
+    # Add error bars if standard deviation data is available
+    has_variance = any(std > 0 for std in batch_stds)
+    if has_variance:
+        ax1.errorbar(num_rules_list, times_to_plot, yerr=batch_stds,
+                    fmt='o', markersize=8, alpha=0.6, color='steelblue', 
+                    ecolor='gray', elinewidth=2, capsize=4, capthick=2,
+                    markeredgecolor='black', markeredgewidth=1.5)
+    else:
+        ax1.scatter(num_rules_list, times_to_plot, s=100, alpha=0.6, color='steelblue', 
+                   edgecolors='black', linewidth=1.5)
     
     # Add partition labels to each point
     for i, name in enumerate(partition_names):
@@ -124,11 +136,22 @@ def plot_complexity_vs_time(json_file: str, mfotl_dir: str, output_file: str = N
     
     ax1.set_xlabel('Number of Rules', fontsize=12, fontweight='bold')
     ax1.set_ylabel(time_label, fontsize=12, fontweight='bold')
-    ax1.set_title('Enforcement Time vs Number of Rules', fontsize=13, fontweight='bold')
+    title1 = 'Enforcement Time vs Number of Rules'
+    if has_variance:
+        title1 += ' (error bars: ±1 std dev)'
+    ax1.set_title(title1, fontsize=13, fontweight='bold')
     ax1.grid(True, alpha=0.3)
     
     # Plot 2: Number of LETs vs Time
-    ax2.scatter(num_lets_list, times_to_plot, s=100, alpha=0.6, color='darkorange', edgecolors='black', linewidth=1.5)
+    # Add error bars if standard deviation data is available
+    if has_variance:
+        ax2.errorbar(num_lets_list, times_to_plot, yerr=batch_stds,
+                    fmt='o', markersize=8, alpha=0.6, color='darkorange', 
+                    ecolor='gray', elinewidth=2, capsize=4, capthick=2,
+                    markeredgecolor='black', markeredgewidth=1.5)
+    else:
+        ax2.scatter(num_lets_list, times_to_plot, s=100, alpha=0.6, color='darkorange', 
+                   edgecolors='black', linewidth=1.5)
     
     # Add partition labels to each point
     for i, name in enumerate(partition_names):
@@ -146,7 +169,10 @@ def plot_complexity_vs_time(json_file: str, mfotl_dir: str, output_file: str = N
     
     ax2.set_xlabel('Number of LETs', fontsize=12, fontweight='bold')
     ax2.set_ylabel(time_label, fontsize=12, fontweight='bold')
-    ax2.set_title('Enforcement Time vs Number of LETs', fontsize=13, fontweight='bold')
+    title2 = 'Enforcement Time vs Number of LETs'
+    if has_variance:
+        title2 += ' (error bars: ±1 std dev)'
+    ax2.set_title(title2, fontsize=13, fontweight='bold')
     ax2.grid(True, alpha=0.3)
     
     plt.tight_layout()
