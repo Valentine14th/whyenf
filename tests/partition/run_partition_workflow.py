@@ -74,15 +74,27 @@ class WorkflowLogger:
     def __init__(self, log_file=None):
         self.log_file = log_file
         self.start_time = time.time()
+        self.context = None  # Current context (e.g., log file being processed)
         
         # Clear log file at start (truncate previous runs)
         if self.log_file:
             with open(self.log_file, 'w') as f:
                 pass  # Just truncate the file
     
+    def set_context(self, context):
+        """Set the logging context (e.g., current log file name)."""
+        self.context = context
+    
+    def clear_context(self):
+        """Clear the logging context."""
+        self.context = None
+    
     def log(self, message, level="INFO"):
         timestamp = time.time() - self.start_time
-        log_line = f"[{timestamp:8.2f}s] [{level}] {message}"
+        if self.context:
+            log_line = f"[{timestamp:8.2f}s] [{level}] [{self.context}] {message}"
+        else:
+            log_line = f"[{timestamp:8.2f}s] [{level}] {message}"
         print(log_line, flush=True)  # Force flush for real-time output
         
         if self.log_file:
@@ -423,7 +435,6 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir, log_fi
     log_output_dir = os.path.join(output_dir, log_output_subdir)
     partition_outputs_dir = os.path.join(log_output_dir, DIR_PARTITION_OUTPUTS)
     os.makedirs(partition_outputs_dir, exist_ok=True)
-    logger.log(f"Output directory: {partition_outputs_dir}")
     
     # Build command
     runner_script = os.path.join(script_dir, 'utils', 'run_partition_enfguard.py')
@@ -926,6 +937,9 @@ def run_workflow(config_file):
             log_basename = os.path.splitext(os.path.basename(log_file))[0]
             log_output_subdir = f"log_{log_basename}"
             
+            # Set logger context to current log file
+            logger.set_context(os.path.basename(log_file))
+            
             logger.log("")
             logger.log(f"[{log_idx}/{len(log_files)}] Processing log: {os.path.basename(log_file)}")
             logger.log(f"Output subdirectory: {log_output_subdir}")
@@ -947,6 +961,7 @@ def run_workflow(config_file):
                     'status': 'failed',
                     'enforcement_summary': None
                 })
+                logger.clear_context()  # Clear context after processing this log
                 continue
             
             # Load enforcement results summary (excluding partition details)
@@ -984,12 +999,17 @@ def run_workflow(config_file):
                     logger.log("Warning: Failed to generate diff statistics plot, continuing...", LOG_LEVEL_WARNING)
             
             logger.log(f"✓ Completed processing log: {os.path.basename(log_file)}")
+            
+            # Clear context after processing this log
+            logger.clear_context()
         
         # Save multi-log summary if multiple logs were processed
         if len(log_files) > 1:
-            logger.log("")
-            logger.log("Generating multi-log summary...")
+            logger.log("="*LOG_SEPARATOR_LENGTH)
+            logger.log("MULTI-LOG SUMMARY")
+            logger.log("="*LOG_SEPARATOR_LENGTH)
             summary_file = os.path.join(output_dir, "multi_log_summary.json")
+            
             
             summary = {
                 'workflow_name': config['name'],
@@ -1014,21 +1034,6 @@ def run_workflow(config_file):
     
     # Final summary
     logger.section("WORKFLOW COMPLETE")
-    
-    # List all output files (use absolute path)
-    logger.log("\nGenerated files in output directory:")
-    output_dir = config['output']['directory']
-    if not os.path.isabs(output_dir):
-        output_dir = os.path.join(workspace_root, output_dir)
-    
-    if os.path.exists(output_dir):
-        for root, dirs, files in os.walk(output_dir):
-            level = root.replace(output_dir, '').count(os.sep)
-            indent = ' ' * 2 * level
-            logger.log(f"{indent}{os.path.basename(root)}/")
-            subindent = ' ' * 2 * (level + 1)
-            for file in sorted(files):
-                logger.log(f"{subindent}{file}")
     
     if success:
         logger.log("\n✓ All enabled steps completed successfully", LOG_LEVEL_SUCCESS)

@@ -280,11 +280,6 @@ def setup_output_directories(output_dir: str) -> Tuple[str, str]:
     os.makedirs(output_subdir, exist_ok=True)
     os.makedirs(diff_subdir, exist_ok=True)
     
-    print(f"Output directory: {output_dir}")
-    print(f"  - Outputs: {output_subdir}")
-    print(f"  - Diffs: {diff_subdir}")
-    print()
-    
     return output_subdir, diff_subdir
 
 
@@ -466,6 +461,7 @@ def run_reference_enfguard(
     label: bool,
     timeout: Optional[int],
     output_subdir: Optional[str],
+    step_by_step: bool = False,
     repeat_runs: int = 1
 ) -> Tuple[Optional[str], Optional[Dict]]:
     """
@@ -479,11 +475,13 @@ def run_reference_enfguard(
         label: Enable label output
         timeout: Optional timeout in seconds
         output_subdir: Optional directory to save output
+        step_by_step: Enable step-by-step execution mode
         repeat_runs: Number of times to run for timing measurements
         
     Returns:
         Tuple of (reference_output, reference_time_stats) or (None, None) if failed
         reference_time_stats is a dict with 'mean', 'std', 'min', 'max', 'runs' if successful
+        If step_by_step is True, reference_time_stats will also include 'step_by_step_timing'
     """
     print(f"RUNNING REFERENCE FILE: {reference_mfotl}")
     if repeat_runs > 1:
@@ -491,6 +489,7 @@ def run_reference_enfguard(
     
     try:
         time_runs = []
+        step_by_step_runs = []
         stdout_result = None
         
         for run_idx in range(repeat_runs):
@@ -507,14 +506,52 @@ def run_reference_enfguard(
                 return None, None
             
             time_runs.append(elapsed_time)
+            print(f"[reference] Batch run {run_idx + 1}/{repeat_runs}: {elapsed_time:.3f}s")
             
             # Save output only on first run
             if run_idx == 0:
                 stdout_result = stdout
                 if output_subdir:
                     save_partition_output("reference.mfotl", stdout, output_subdir)
+            
+            # Collect step-by-step timing if requested (for all runs)
+            if step_by_step and STEP_BY_STEP_AVAILABLE:
+                if run_idx == 0:
+                    print(f"[reference] Step-by-step run {run_idx + 1}/{repeat_runs}")
+                try:
+                    step_by_step_data = run_enfguard_step_by_step(
+                        reference_mfotl,
+                        sig_file,
+                        log_file,
+                        func_file,
+                        label=label,
+                        timeout=timeout,
+                        output_dir=None
+                    )
+                    step_by_step_runs.append(step_by_step_data)
+                    if run_idx == 0:
+                        avg_time = step_by_step_data.get('avg_step_time', 0.0)
+                        print(f"[reference] Step-by-step run {run_idx + 1}/{repeat_runs}: {step_by_step_data['total_steps']} steps, avg {avg_time:.3f}s/step")
+                    elif repeat_runs > 1 and (run_idx + 1) % max(1, repeat_runs // 4) == 0:
+                        # Print progress for multi-run step-by-step (every 25%)
+                        print(f"[reference] Step-by-step progress: {run_idx + 1}/{repeat_runs} runs completed")
+                except Exception as e:
+                    print(f"[reference] Warning: Step-by-step timing failed on run {run_idx + 1}: {e}")
+        
+        # Aggregate step-by-step timing if collected
+        aggregated_step_timing = None
+        if step_by_step_runs:
+            aggregated_step_timing = aggregate_step_by_step_timing(step_by_step_runs)
+            if repeat_runs > 1:
+                avg_stats = aggregated_step_timing['avg_step_time_stats']
+                print(f"[reference] Step-by-step aggregated: mean {avg_stats['mean']:.3f}s/step (±{avg_stats['std']:.3f}s)")
         
         time_stats = calculate_time_stats(time_runs)
+        
+        # Add step-by-step timing to time_stats if available
+        if aggregated_step_timing:
+            time_stats['step_by_step_timing'] = aggregated_step_timing
+        
         print_timing_result("reference", "✓ SUCCESS", time_stats, repeat_runs, is_reference=True)
         print()
         return stdout_result, time_stats
@@ -561,8 +598,6 @@ def run_partition_enfguard(
     """
     partition_name = mfotl_file.name
     print(f"\n[{partition_name}] Running enfguard...")
-    if repeat_runs > 1:
-        print(f"  Repeat runs: {repeat_runs} (timing only)")
     
     try:
         # Collect timing measurements
@@ -589,6 +624,7 @@ def run_partition_enfguard(
             
             # Success - collect timing
             time_runs.append(elapsed_time)
+            print(f"[{partition_name}] Batch run {run_idx + 1}/{repeat_runs}: {elapsed_time:.3f}s")
             
             # Only do once on first run
             if run_idx == 0:
@@ -608,7 +644,7 @@ def run_partition_enfguard(
             # Collect step-by-step timing if requested (for all runs)
             if step_by_step and STEP_BY_STEP_AVAILABLE:
                 if run_idx == 0:
-                    print(f"[{partition_name}] Collecting step-by-step timing information...")
+                    print(f"[{partition_name}] Step-by-step run {run_idx + 1}/{repeat_runs}")
                 try:
                     step_by_step_data = run_enfguard_step_by_step(
                         str(mfotl_file),
@@ -1022,7 +1058,7 @@ def run_enfguard_on_partitions(
     if reference_mfotl:
         reference_output, reference_time = run_reference_enfguard(
             reference_mfotl, sig_file, log_file, func_file, 
-            label, timeout, output_subdir, repeat_runs
+            label, timeout, output_subdir, step_by_step, repeat_runs
         )
     
     # Find all .mfotl files in the directory

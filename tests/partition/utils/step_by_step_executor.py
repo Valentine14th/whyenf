@@ -77,8 +77,6 @@ def run_enfguard_step_by_step(
         if match:
             timestamps.append(int(match.group(1)))
     
-    print(f"Found {len(log_lines)} log lines with timestamps: {timestamps}")
-    
     # Build enfguard command (without -log flag for interactive mode)
     cmd = [
         "./enfguard",
@@ -89,8 +87,6 @@ def run_enfguard_step_by_step(
     
     if label:
         cmd.append("-label")
-    
-    print(f"Starting enfguard in interactive mode...")
     
     # Start enfguard process
     try:
@@ -115,9 +111,7 @@ def run_enfguard_step_by_step(
     
     try:
         # Feed log lines one by one and measure timing
-        for i, (line, timestamp) in enumerate(zip(log_lines, timestamps)):
-            print(f"\n--- Step {i+1}/{len(log_lines)}: Processing @{timestamp} ---")
-            
+        for i, (line, timestamp) in enumerate(zip(log_lines, timestamps)):           
             step_start = time.time()
             process.stdin.write(line + "\n")
             process.stdin.flush()
