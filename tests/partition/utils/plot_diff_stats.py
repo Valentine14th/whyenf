@@ -274,40 +274,6 @@ def plot_diff_statistics(diff_dir):
     print(f"Plot saved to: {output_path}")
     
     plt.close()  # Close instead of show to avoid GUI issues
-    
-    # Print summary statistics
-    print("\n" + "="*80)
-    print("SUMMARY STATISTICS")
-    print("="*80)
-    print("Legend: +N (extra in partition), -N (missing from partition), Net (sum)")
-    
-    for partition_name in sorted(all_data_extra.keys()):
-        print(f"\n{partition_name}:")
-        for cat_key, cat_title, _ in categories:
-            values_extra = list(all_data_extra[partition_name][cat_key].values())
-            values_missing = list(all_data_missing[partition_name][cat_key].values())
-            
-            if not values_extra and not values_missing:
-                total_net = 0
-                num_timestamps = 0
-                total_positive = 0
-                total_negative = 0
-            else:
-                total_positive = sum(values_extra)
-                total_negative = sum(values_missing)
-                total_net = total_positive + total_negative
-                # Count unique timestamps with differences
-                timestamps_with_diffs = set()
-                for ts, val in all_data_extra[partition_name][cat_key].items():
-                    if val != 0:
-                        timestamps_with_diffs.add(ts)
-                for ts, val in all_data_missing[partition_name][cat_key].items():
-                    if val != 0:
-                        timestamps_with_diffs.add(ts)
-                num_timestamps = len(timestamps_with_diffs)
-            
-            sign = '+' if total_net > 0 else ''
-            print(f"  {cat_title:30s}: Net={sign}{total_net:4d} (+{total_positive:3d} extra, {total_negative:4d} missing) across {num_timestamps} timestamps")
 
 if __name__ == '__main__':
     import sys
