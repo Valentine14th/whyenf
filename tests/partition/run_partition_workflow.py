@@ -417,7 +417,7 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir, log_fi
     
     if not os.path.exists(partition_dir):
         logger.log(f"✗ Partition directory not found: {partition_dir}", LOG_LEVEL_ERROR)
-        return False
+        return None, None
     
     # Count partition files
     partition_files = list(Path(partition_dir).glob(FILE_PATTERN_MFOTL))
@@ -425,7 +425,7 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir, log_fi
     
     if not partition_files:
         logger.log("✗ No partition files found", LOG_LEVEL_ERROR)
-        return False
+        return None, None
     
     # Create output directory for this log's partition outputs and diffs
     output_dir = config['output']['directory']

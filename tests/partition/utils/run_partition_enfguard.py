@@ -487,35 +487,43 @@ def run_reference_enfguard(
     if repeat_runs > 1:
         print(f"  Repeat runs: {repeat_runs} (timing only)")
     
+    # If step-by-step is requested but not available, fall back to batch mode
+    if step_by_step and not STEP_BY_STEP_AVAILABLE:
+        print("[reference] Warning: Step-by-step mode requested but not available, falling back to batch mode")
+        step_by_step = False
+    
     try:
         time_runs = []
         step_by_step_runs = []
         stdout_result = None
         
-        for run_idx in range(repeat_runs):
-            exit_code, stdout, stderr, elapsed_time = run_enfguard_command(
-                reference_mfotl, sig_file, log_file, func_file, label, timeout
-            )
-            
-            if exit_code != 0:
-                status, time_stats = handle_enfguard_failure(
-                    "reference.mfotl", exit_code, stderr, stdout, elapsed_time,
-                    output_subdir, run_idx == 0
+        # Only run batch mode if step-by-step is disabled
+        if not step_by_step:
+            for run_idx in range(repeat_runs):
+                exit_code, stdout, stderr, elapsed_time = run_enfguard_command(
+                    reference_mfotl, sig_file, log_file, func_file, label, timeout
                 )
-                print()
-                return None, None
-            
-            time_runs.append(elapsed_time)
-            print(f"[reference] Batch run {run_idx + 1}/{repeat_runs}: {elapsed_time:.3f}s")
-            
-            # Save output only on first run
-            if run_idx == 0:
-                stdout_result = stdout
-                if output_subdir:
-                    save_partition_output("reference.mfotl", stdout, output_subdir)
-            
-            # Collect step-by-step timing if requested (for all runs)
-            if step_by_step and STEP_BY_STEP_AVAILABLE:
+                
+                if exit_code != 0:
+                    status, time_stats = handle_enfguard_failure(
+                        "reference.mfotl", exit_code, stderr, stdout, elapsed_time,
+                        output_subdir, run_idx == 0
+                    )
+                    print()
+                    return None, None
+                
+                time_runs.append(elapsed_time)
+                print(f"[reference] Batch run {run_idx + 1}/{repeat_runs}: {elapsed_time:.3f}s")
+                
+                # Save output only on first run
+                if run_idx == 0:
+                    stdout_result = stdout
+                    if output_subdir:
+                        save_partition_output("reference.mfotl", stdout, output_subdir)
+        
+        # Run step-by-step mode if enabled
+        if step_by_step and STEP_BY_STEP_AVAILABLE:
+            for run_idx in range(repeat_runs):
                 if run_idx == 0:
                     print(f"[reference] Step-by-step run {run_idx + 1}/{repeat_runs}")
                 try:
@@ -529,6 +537,17 @@ def run_reference_enfguard(
                         output_dir=None
                     )
                     step_by_step_runs.append(step_by_step_data)
+                    
+                    # Extract total time from step-by-step execution
+                    total_time = step_by_step_data.get('total_time', 0.0)
+                    time_runs.append(total_time)
+                    
+                    # Save stdout on first run
+                    if run_idx == 0:
+                        stdout_result = step_by_step_data.get('stdout', '')
+                        if output_subdir:
+                            save_partition_output("reference.mfotl", stdout_result, output_subdir)
+                    
                     if run_idx == 0:
                         avg_time = step_by_step_data.get('avg_step_time', 0.0)
                         print(f"[reference] Step-by-step run {run_idx + 1}/{repeat_runs}: {step_by_step_data['total_steps']} steps, avg {avg_time:.3f}s/step")
@@ -545,6 +564,11 @@ def run_reference_enfguard(
             if repeat_runs > 1:
                 avg_stats = aggregated_step_timing['avg_step_time_stats']
                 print(f"[reference] Step-by-step aggregated: mean {avg_stats['mean']:.3f}s/step (±{avg_stats['std']:.3f}s)")
+        
+        # Ensure we have timing data
+        if not time_runs:
+            print("[reference] ✗ ERROR: No timing data collected (both batch and step-by-step failed)")
+            return None, None
         
         time_stats = calculate_time_stats(time_runs)
         
@@ -599,6 +623,11 @@ def run_partition_enfguard(
     partition_name = mfotl_file.name
     print(f"\n[{partition_name}] Running enfguard...")
     
+    # If step-by-step is requested but not available, fall back to batch mode
+    if step_by_step and not STEP_BY_STEP_AVAILABLE:
+        print(f"[{partition_name}] Warning: Step-by-step mode requested but not available, falling back to batch mode")
+        step_by_step = False
+    
     try:
         # Collect timing measurements
         time_runs = []
@@ -607,42 +636,45 @@ def run_partition_enfguard(
         output_matches = None
         match_percentage = None
         
-        for run_idx in range(repeat_runs):
-            exit_code, stdout, stderr, elapsed_time = run_enfguard_command(
-                str(mfotl_file), sig_file, log_file, func_file, label, timeout
-            )
-            
-            if exit_code != 0:
-                status, time_stats = handle_enfguard_failure(
-                    partition_name, exit_code, stderr, stdout, elapsed_time,
-                    output_subdir, run_idx == 0
+        # Only run batch mode if step-by-step is disabled
+        if not step_by_step:
+            for run_idx in range(repeat_runs):
+                exit_code, stdout, stderr, elapsed_time = run_enfguard_command(
+                    str(mfotl_file), sig_file, log_file, func_file, label, timeout
                 )
-                return create_result_dict(
-                    partition_name, status, exit_code, time_stats,
-                    output=stdout if stdout else None
-                )
-            
-            # Success - collect timing
-            time_runs.append(elapsed_time)
-            print(f"[{partition_name}] Batch run {run_idx + 1}/{repeat_runs}: {elapsed_time:.3f}s")
-            
-            # Only do once on first run
-            if run_idx == 0:
-                stdout_result = stdout
                 
-                # Save partition output if output_subdir is provided
-                if output_subdir:
-                    save_partition_output(partition_name, stdout, output_subdir)
-                
-                # Compare with reference if available
-                if reference_output is not None:
-                    output_matches, match_percentage = compare_and_save_diff(
-                        partition_name, stdout, reference_output, 
-                        diff_subdir
+                if exit_code != 0:
+                    status, time_stats = handle_enfguard_failure(
+                        partition_name, exit_code, stderr, stdout, elapsed_time,
+                        output_subdir, run_idx == 0
                     )
-            
-            # Collect step-by-step timing if requested (for all runs)
-            if step_by_step and STEP_BY_STEP_AVAILABLE:
+                    return create_result_dict(
+                        partition_name, status, exit_code, time_stats,
+                        output=stdout if stdout else None
+                    )
+                
+                # Success - collect timing
+                time_runs.append(elapsed_time)
+                print(f"[{partition_name}] Batch run {run_idx + 1}/{repeat_runs}: {elapsed_time:.3f}s")
+                
+                # Only do once on first run
+                if run_idx == 0:
+                    stdout_result = stdout
+                    
+                    # Save partition output if output_subdir is provided
+                    if output_subdir:
+                        save_partition_output(partition_name, stdout, output_subdir)
+                    
+                    # Compare with reference if available
+                    if reference_output is not None:
+                        output_matches, match_percentage = compare_and_save_diff(
+                            partition_name, stdout, reference_output, 
+                            diff_subdir
+                        )
+        
+        # Run step-by-step mode if enabled
+        if step_by_step and STEP_BY_STEP_AVAILABLE:
+            for run_idx in range(repeat_runs):
                 if run_idx == 0:
                     print(f"[{partition_name}] Step-by-step run {run_idx + 1}/{repeat_runs}")
                 try:
@@ -656,6 +688,25 @@ def run_partition_enfguard(
                         output_dir=None
                     )
                     step_by_step_runs.append(step_by_step_data)
+                    
+                    # Extract total time from step-by-step execution
+                    total_time = step_by_step_data.get('total_time', 0.0)
+                    time_runs.append(total_time)
+                    
+                    # Save stdout and perform comparison on first run
+                    if run_idx == 0:
+                        stdout_result = step_by_step_data.get('stdout', '')
+                        
+                        if output_subdir:
+                            save_partition_output(partition_name, stdout_result, output_subdir)
+                        
+                        # Compare with reference if available
+                        if reference_output is not None:
+                            output_matches, match_percentage = compare_and_save_diff(
+                                partition_name, stdout_result, reference_output, 
+                                diff_subdir
+                            )
+                    
                     if run_idx == 0:
                         avg_time = step_by_step_data.get('avg_step_time', 0.0)
                         print(f"[{partition_name}] Step-by-step run {run_idx + 1}/{repeat_runs}: {step_by_step_data['total_steps']} steps, avg {avg_time:.3f}s/step")
@@ -672,6 +723,14 @@ def run_partition_enfguard(
             if repeat_runs > 1:
                 avg_stats = aggregated_step_timing['avg_step_time_stats']
                 print(f"[{partition_name}] Step-by-step aggregated: mean {avg_stats['mean']:.3f}s/step (±{avg_stats['std']:.3f}s)")
+        
+        # Ensure we have timing data
+        if not time_runs:
+            print(f"[{partition_name}] ✗ ERROR: No timing data collected (both batch and step-by-step failed)")
+            return create_result_dict(
+                partition_name, "ERROR", -1, calculate_time_stats([]),
+                output=None
+            )
         
         time_stats = calculate_time_stats(time_runs)
         status = "✓ SUCCESS"

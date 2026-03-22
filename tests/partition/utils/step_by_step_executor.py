@@ -100,14 +100,17 @@ def run_enfguard_step_by_step(
             cwd=os.getcwd()
         )
     except Exception as e:
+        error_msg = f'Failed to start enfguard: {e}'
+        print(f"✗ ERROR: {error_msg}")
         return {
             'status': 'error',
-            'message': f'Failed to start enfguard: {e}',
+            'message': error_msg,
             'steps': []
         }
     
     step_results = []
     cumulative_time = 0.0
+    all_stdout = []
     
     try:
         # Feed log lines one by one and measure timing
@@ -118,12 +121,20 @@ def run_enfguard_step_by_step(
             
             # Read output until we get completion signal for this timestamp
             completed = False
+            step_stdout = []
+            step_stderr = []
             
             while True:
                 output_line = process.stdout.readline()
                 if not output_line:
-                    # Process ended unexpectedly
+                    # Process ended unexpectedly - check stderr
+                    stderr_output = process.stderr.read()
+                    if stderr_output:
+                        step_stderr.append(stderr_output)
                     break
+                
+                step_stdout.append(output_line)
+                all_stdout.append(output_line)
                 
                 # Check if this line indicates completion for current timestamp
                 if detect_completion(output_line, timestamp):
@@ -150,10 +161,33 @@ def run_enfguard_step_by_step(
             completion_str = "completed" if completed else "no completion signal"
             print(f"{status_emoji} @{timestamp}: {step_time:.3f}s (cumulative: {cumulative_time:.3f}s) - {completion_str}")
             
+            # Print error if encountered
+            if not completed or step_stderr:
+                if step_stderr:
+                    stderr_text = ''.join(step_stderr).strip()
+                    if stderr_text:
+                        print(f"    ERROR at step {i + 1} (@{timestamp}):")
+                        for err_line in stderr_text.split('\n'):
+                            print(f"      {err_line}")
+                
+                # Also check if there's any error indication in stdout
+                step_stdout_text = ''.join(step_stdout)
+                if 'error' in step_stdout_text.lower() or 'exception' in step_stdout_text.lower():
+                    print(f"    Output indicates error at step {i + 1} (@{timestamp}):")
+                    for out_line in step_stdout_text.strip().split('\n'):
+                        if 'error' in out_line.lower() or 'exception' in out_line.lower():
+                            print(f"      {out_line}")
+            
             # Stop if we didn't get completion
             if not completed:
                 print(f"Warning: No completion signal received for timestamp {timestamp}")
                 break
+    
+    except Exception as e:
+        error_msg = f"Exception during step-by-step execution: {e}"
+        print(f"✗ ERROR: {error_msg}")
+        import traceback
+        traceback.print_exc()
     
     finally:
         # Clean up process
@@ -169,6 +203,9 @@ def run_enfguard_step_by_step(
     # Calculate statistics
     successful_steps = [s for s in step_results if s['exit_code'] == 0]
     
+    # Combine all stdout
+    stdout_combined = ''.join(all_stdout)
+    
     return {
         'status': 'success' if len(successful_steps) == len(step_results) else 'partial',
         'total_steps': len(timestamps),
@@ -176,7 +213,8 @@ def run_enfguard_step_by_step(
         'total_time': cumulative_time,
         'steps': step_results,
         'timestamps': timestamps,
-        'avg_step_time': cumulative_time / len(successful_steps) if successful_steps else 0.0
+        'avg_step_time': cumulative_time / len(successful_steps) if successful_steps else 0.0,
+        'stdout': stdout_combined
     }
 
 
