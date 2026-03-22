@@ -1003,10 +1003,13 @@ def run_workflow(config_file):
             # Clear context after processing this log
             logger.clear_context()
         
-        # Save multi-log summary if multiple logs were processed
-        if len(log_files) > 1:
+        # Save multi-log summary (always generate summary plots, even for single log)
+        if len(log_files) >= 1:
             logger.log("="*LOG_SEPARATOR_LENGTH)
-            logger.log("MULTI-LOG SUMMARY")
+            if len(log_files) > 1:
+                logger.log("MULTI-LOG SUMMARY")
+            else:
+                logger.log("SUMMARY")
             logger.log("="*LOG_SEPARATOR_LENGTH)
             summary_file = os.path.join(output_dir, "multi_log_summary.json")
             
@@ -1023,12 +1026,12 @@ def run_workflow(config_file):
             with open(summary_file, 'w') as f:
                 json.dump(summary, f, indent=2)
             
-            logger.log(f"Multi-log summary saved to: {summary_file}")
+            logger.log(f"Summary saved to: {summary_file}")
             
-            # Generate multi-log summary plots
+            # Generate summary plots
             if not generate_multi_log_summary_plots(config, logger, workspace_root, script_dir, 
                                                      summary_file, output_dir):
-                logger.log("Warning: Failed to generate multi-log summary plots, continuing...", LOG_LEVEL_WARNING)
+                logger.log("Warning: Failed to generate summary plots, continuing...", LOG_LEVEL_WARNING)
     else:
         logger.log("Partition enforcement step skipped (disabled in config)")
     
