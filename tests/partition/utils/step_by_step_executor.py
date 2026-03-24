@@ -1,38 +1,129 @@
 #!/usr/bin/env python3
 """
 Step-by-step enforcement executor.
-Parses log files by timestamp and runs enforcement incrementally.
+Parses log files and runs enforcement incrementally, tracking each block with a timepoint.
+Uses timepoints (incremental counters) to identify and track enforcement blocks.
 """
 
 import os
 import re
 import subprocess
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
+from collections import defaultdict
 
 
-def detect_completion(output: str, timestamp: int) -> bool:
+def extract_timestamps(log_lines: List[str]) -> Tuple[List[int], List[int]]:
     """
-    Check if enforcement completed for the given timestamp.
+    Extract timestamps from log lines and check for missing tick() calls.
     
     Args:
-        output: Enforcer output text
-        timestamp: The timestamp to check for completion
+        log_lines: List of log file lines
         
     Returns:
-        True if completion detected for this timestamp
+        Tuple of (timestamps, missing_ticks)
     """
-    # Look for "[Enforcer] @{timestamp} OK." or just "OK." at end of output
-    patterns = [
-        rf'\[Enforcer\]\s+@{timestamp}\s+OK\.',
-        r'OK\.\s*$'
-    ]
+    timestamps = []
+    timestamp_has_tick = set()
     
-    for pattern in patterns:
-        if re.search(pattern, output, re.MULTILINE):
-            return True
+    for line in log_lines:
+        match = re.match(r'@(\d+)', line)
+        if match:
+            timestamp = int(match.group(1))
+            timestamps.append(timestamp)
+            if 'tick()' in line:
+                timestamp_has_tick.add(timestamp)
+    
+    # All timestamps except 1 should have tick()
+    unique_timestamps = set(timestamps)
+    missing_ticks = sorted([ts for ts in unique_timestamps if ts > 1 and ts not in timestamp_has_tick])
+    
+    return timestamps, missing_ticks
+
+
+def detect_block_type(output_line: str) -> Tuple[Optional[str], bool]:
+    """
+    Detect block type and action from output line.
+    
+    Args:
+        output_line: Single line of enforcer output
+        
+    Returns:
+        Tuple of (block_type, has_action)
+    """
+    if 'reactively commands:' in output_line:
+        return 'reactive', True
+    elif 'proactively commands:' in output_line:
+        return 'proactive', True
+    elif 'nothing to do proactively' in output_line:
+        return 'proactive', False
+    return None, False
+
+
+def detect_block_completion(output_line: str, block_type: Optional[str]) -> bool:
+    """
+    Check if a block has completed based on its type.
+    
+    Block completion patterns:
+    - Reactive with action: ends with "OK."
+    - Reactive no action: ends with "[Enforcer] ... OK."
+    - Proactive with action: ends with "OK."
+    - Proactive no action: ends with "nothing to do proactively"
+    
+    Args:
+        output_line: Single line of enforcer output
+        block_type: Current block type ('reactive', 'proactive', or None)
+        
+    Returns:
+        True if completion detected for this block type
+    """
+    line = output_line.strip()
+    
+    # Proactive block with no action
+    if 'nothing to do proactively' in line:
+        return True
+    
+    # Reactive block with no action (like "[Enforcer] @1 OK.")
+    if block_type is None and re.search(r'\[Enforcer\].*OK\.\s*$', line):
+        return True
+    
+    # Reactive or proactive block with action (ends with just "OK.")
+    if block_type in ['reactive', 'proactive'] and re.search(r'^.*OK\.\s*$', line) and '[Enforcer]' not in line:
+        return True
     
     return False
+
+
+def calculate_block_statistics(step_results: List[Dict]) -> Dict:
+    """
+    Calculate statistics about block types and actions.
+    
+    Args:
+        step_results: List of step result dictionaries
+        
+    Returns:
+        Dictionary with block counts
+    """
+    stats = defaultdict(int)
+    
+    for step in step_results:
+        block_type = step.get('block_type')
+        has_action = step.get('has_action', False)
+        
+        if block_type == 'reactive':
+            stats['reactive_total'] += 1
+            if has_action:
+                stats['reactive_with_action'] += 1
+            else:
+                stats['reactive_no_action'] += 1
+        elif block_type == 'proactive':
+            stats['proactive_total'] += 1
+            if has_action:
+                stats['proactive_with_action'] += 1
+            else:
+                stats['proactive_no_action'] += 1
+    
+    return dict(stats)
 
 
 def run_enfguard_step_by_step(
@@ -45,7 +136,8 @@ def run_enfguard_step_by_step(
     output_dir: Optional[str] = None
 ) -> Dict:
     """
-    Run enfguard step-by-step in interactive mode, measuring time at each timestamp.
+    Run enfguard step-by-step in interactive mode, measuring time at each timepoint.
+    Each log line produces one enforcement block which is assigned a sequential timepoint.
     
     Args:
         mfotl_file: Path to MFOTL formula file
@@ -70,12 +162,14 @@ def run_enfguard_step_by_step(
             'steps': []
         }
     
-    # Extract timestamps for tracking
-    timestamps = []
-    for line in log_lines:
-        match = re.match(r'@(\d+)', line)
-        if match:
-            timestamps.append(int(match.group(1)))
+    # Extract timestamps and check for missing tick() calls
+    timestamps, missing_ticks = extract_timestamps(log_lines)
+    
+    if missing_ticks:
+        print(f"\n⚠ WARNING: Log file is missing tick() calls at timestamps: {missing_ticks}")
+        print(f"  Each timestamp (except @1) should have a tick() line.")
+        print(f"  Expected format: '@N tick();' before other events at timestamp N")
+        print(f"  This may cause the workflow to produce incorrect results.\n")
     
     # Build enfguard command (without -log flag for interactive mode)
     cmd = [
@@ -111,77 +205,96 @@ def run_enfguard_step_by_step(
     step_results = []
     cumulative_time = 0.0
     all_stdout = []
+    timepoint = 0
     
     try:
+        # Wait for enfguard to be ready before starting timing
+        time.sleep(10) 
+        
         # Feed log lines one by one and measure timing
         for i, (line, timestamp) in enumerate(zip(log_lines, timestamps)):           
             step_start = time.time()
             process.stdin.write(line + "\n")
             process.stdin.flush()
             
-            # Read output until we get completion signal for this timestamp
+            # Read output until we get completion signal for this block
             completed = False
-            step_stdout = []
+            block_output = []
             step_stderr = []
+            block_type = None
+            has_action = False
             
             while True:
                 output_line = process.stdout.readline()
                 if not output_line:
-                    # Process ended unexpectedly - check stderr
                     stderr_output = process.stderr.read()
                     if stderr_output:
                         step_stderr.append(stderr_output)
                     break
                 
-                step_stdout.append(output_line)
+                block_output.append(output_line)
                 all_stdout.append(output_line)
                 
-                # Check if this line indicates completion for current timestamp
-                if detect_completion(output_line, timestamp):
+                # Detect block type from output
+                detected_type, detected_action = detect_block_type(output_line)
+                if detected_type:
+                    block_type = detected_type
+                    has_action = detected_action
+                
+                # Check if block completed
+                if detect_block_completion(output_line, block_type):
                     completed = True
+                    if block_type is None:
+                        block_type = 'reactive'
+                        has_action = False
                     break
             
             step_time = time.time() - step_start
             cumulative_time += step_time
             
+            # Create step result
+            block_desc = f"{block_type}-{'action' if has_action else 'noaction'}" if block_type else "unknown"
             step_result = {
+                'timepoint': timepoint,
+                'step_number': timepoint,
                 'timestamp': timestamp,
-                'step_number': i + 1,
+                'line_number': i + 1,
                 'exit_code': 0 if completed else 1,
                 'step_time': step_time,
                 'cumulative_time': cumulative_time,
                 'completed': completed,
-                'status': 'success' if completed else 'incomplete'
+                'status': 'success' if completed else 'incomplete',
+                'block_type': block_type,
+                'has_action': has_action,
+                'block_output': ''.join(block_output)
             }
-            
             step_results.append(step_result)
             
             # Print step summary
             status_emoji = "✓" if completed else "✗"
-            completion_str = "completed" if completed else "no completion signal"
-            print(f"{status_emoji} @{timestamp}: {step_time:.3f}s (cumulative: {cumulative_time:.3f}s) - {completion_str}")
+            print(f"{status_emoji} tp{timepoint} (@{timestamp}): {step_time:.3f}s - {block_desc}")
             
-            # Print error if encountered
+            # Print errors if encountered
             if not completed or step_stderr:
                 if step_stderr:
-                    stderr_text = ''.join(step_stderr).strip()
-                    if stderr_text:
-                        print(f"    ERROR at step {i + 1} (@{timestamp}):")
-                        for err_line in stderr_text.split('\n'):
-                            print(f"      {err_line}")
+                    print(f"    ERROR at tp{timepoint} (@{timestamp}):")
+                    for err_line in ''.join(step_stderr).strip().split('\n'):
+                        print(f"      {err_line}")
                 
-                # Also check if there's any error indication in stdout
-                step_stdout_text = ''.join(step_stdout)
-                if 'error' in step_stdout_text.lower() or 'exception' in step_stdout_text.lower():
-                    print(f"    Output indicates error at step {i + 1} (@{timestamp}):")
-                    for out_line in step_stdout_text.strip().split('\n'):
+                # Check for errors in stdout
+                block_text = step_result['block_output']
+                if 'error' in block_text.lower() or 'exception' in block_text.lower():
+                    print(f"    Output indicates error at tp{timepoint} (@{timestamp}):")
+                    for out_line in block_text.strip().split('\n'):
                         if 'error' in out_line.lower() or 'exception' in out_line.lower():
                             print(f"      {out_line}")
             
             # Stop if we didn't get completion
             if not completed:
-                print(f"Warning: No completion signal received for timestamp {timestamp}")
+                print(f"Warning: No completion signal received for tp{timepoint} (timestamp {timestamp})")
                 break
+            
+            timepoint += 1
     
     except Exception as e:
         error_msg = f"Exception during step-by-step execution: {e}"
@@ -202,24 +315,67 @@ def run_enfguard_step_by_step(
     
     # Calculate statistics
     successful_steps = [s for s in step_results if s['exit_code'] == 0]
-    
-    # Combine all stdout
     stdout_combined = ''.join(all_stdout)
+    block_stats = calculate_block_statistics(step_results)
+    
+    # Parse output into blocks and save as JSON
+    blocks_json = None
+    if output_dir:
+        try:
+            from enforcer_diff import EnforcerBlock, blocks_to_json_file
+            
+            # Build blocks directly from step_results
+            blocks = [
+                EnforcerBlock(
+                    timestamp=step['timestamp'],
+                    raw_content=step['block_output'],
+                    lines=step['block_output'].split('\n') if step['block_output'] else [],
+                    block_type=step['block_type'],
+                    has_action=step['has_action'],
+                    timepoint=step['timepoint']
+                )
+                for step in step_results
+            ]
+            
+            # Create timing map from step results
+            timing_map = {
+                step['timepoint']: {
+                    'step_time': step.get('step_time'),
+                    'cumulative_time': step.get('cumulative_time'),
+                    'line_number': step.get('line_number'),
+                    'block_type': step.get('block_type'),
+                    'has_action': step.get('has_action'),
+                    'status': step.get('status')
+                }
+                for step in step_results if 'timepoint' in step
+            }
+            
+            # Save blocks as JSON with timing info
+            parsed_output_dir = os.path.join(output_dir, "parsed_output")
+            os.makedirs(parsed_output_dir, exist_ok=True)
+            blocks_json_file = os.path.join(parsed_output_dir, "step_by_step_blocks.json")
+            blocks_to_json_file(blocks, blocks_json_file, timing_map=timing_map)
+            blocks_json = blocks_json_file
+        except ImportError:
+            pass
     
     return {
         'status': 'success' if len(successful_steps) == len(step_results) else 'partial',
-        'total_steps': len(timestamps),
+        'total_lines': len(log_lines),
+        'total_timepoints': timepoint,
+        'total_steps': timepoint,
         'completed_steps': len(successful_steps),
         'total_time': cumulative_time,
         'steps': step_results,
         'timestamps': timestamps,
         'avg_step_time': cumulative_time / len(successful_steps) if successful_steps else 0.0,
-        'stdout': stdout_combined
+        'stdout': stdout_combined,
+        'blocks_json': blocks_json,
+        **block_stats
     }
 
 
 if __name__ == "__main__":
-    # Simple test
     import sys
     
     if len(sys.argv) < 5:
@@ -227,15 +383,23 @@ if __name__ == "__main__":
         sys.exit(1)
     
     results = run_enfguard_step_by_step(
-        sys.argv[1],
-        sys.argv[2],
-        sys.argv[3],
-        sys.argv[4],
-        label=True
+        sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], label=True
     )
     
     print("\n=== SUMMARY ===")
     print(f"Status: {results['status']}")
-    print(f"Steps: {results['completed_steps']}/{results['total_steps']}")
+    print(f"Timepoints: {results['total_timepoints']}")
+    print(f"Lines processed: {results['completed_steps']}/{results['total_lines']}")
     print(f"Total time: {results['total_time']:.3f}s")
-    print(f"Avg step time: {results['avg_step_time']:.3f}s")
+    print(f"Avg per timepoint: {results['avg_step_time']:.3f}s")
+    
+    # Print block statistics
+    reactive_total = results.get('reactive_total', 0)
+    reactive_action = results.get('reactive_with_action', 0)
+    reactive_no_action = results.get('reactive_no_action', 0)
+    proactive_total = results.get('proactive_total', 0)
+    proactive_action = results.get('proactive_with_action', 0)
+    proactive_no_action = results.get('proactive_no_action', 0)
+    
+    print(f"Reactive blocks: {reactive_total} total ({reactive_action} with action, {reactive_no_action} no action)")
+    print(f"Proactive blocks: {proactive_total} total ({proactive_action} with action, {proactive_no_action} no action)")

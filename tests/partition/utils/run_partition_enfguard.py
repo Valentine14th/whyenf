@@ -10,6 +10,7 @@ import json
 import subprocess
 import time
 import difflib
+import shutil
 import numpy as np
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -18,10 +19,13 @@ from typing import Dict, List, Optional, Tuple
 try:
     from enforcer_diff import (
         compare_enforcer_outputs, 
+        compare_blocks_json,
         save_comparison_report,
         save_comparison_json,
         parse_enforcer_output,
-        combine_blocks_by_timestamp
+        combine_blocks_by_timepoint,
+        blocks_to_json_file,
+        load_blocks_from_json
     )
     ENFORCER_DIFF_AVAILABLE = True
 except ImportError:
@@ -134,7 +138,8 @@ def create_result_dict(
     output: Optional[str] = None,
     output_matches: Optional[bool] = None,
     match_percentage: Optional[float] = None,
-    step_by_step_timing: Optional[Dict] = None
+    step_by_step_timing: Optional[Dict] = None,
+    blocks_json: Optional[str] = None
 ) -> Dict:
     """
     Create a standardized result dictionary.
@@ -148,6 +153,7 @@ def create_result_dict(
         output_matches: Optional flag indicating if output matches reference
         match_percentage: Optional match percentage
         step_by_step_timing: Optional step-by-step timing data
+        blocks_json: Optional path to JSON file containing parsed blocks
         
     Returns:
         Standardized result dictionary
@@ -160,7 +166,8 @@ def create_result_dict(
         'output_matches': output_matches,
         'match_percentage': match_percentage,
         'output': output,
-        'step_by_step_timing': step_by_step_timing
+        'step_by_step_timing': step_by_step_timing,
+        'blocks_json': blocks_json
     }
 
 
@@ -287,25 +294,41 @@ def save_partition_output(
     partition_name: str,
     output: str,
     output_subdir: str,
-    label: str = ""
+    label: str = "",
+    skip_json: bool = False
 ) -> None:
     """
-    Save partition output to file.
+    Save partition output to file (both text and JSON format).
     
     Args:
         partition_name: Name of partition file
         output: Output string to save
         output_subdir: Directory to save output
         label: Optional label for the output file (e.g., "partial")
+        skip_json: If True, skip JSON saving (used when JSON already saved with timing info)
     """
     if output_subdir and output:
         partition_id = get_partition_id(partition_name)
+        
+        # Save text output
         partition_output_file = os.path.join(
             output_subdir, 
             f"output_{partition_id}_{label}.txt" if label else f"output_{partition_id}.txt"
         )
         with open(partition_output_file, 'w') as f:
             f.write(output)
+        
+        # Parse and save blocks as JSON (unless skip_json is True)
+        if ENFORCER_DIFF_AVAILABLE and not skip_json:
+            blocks = parse_enforcer_output(output)
+            # Create parsed_output subdirectory
+            parsed_output_dir = os.path.join(output_subdir, "parsed_output")
+            os.makedirs(parsed_output_dir, exist_ok=True)
+            blocks_json_file = os.path.join(
+                parsed_output_dir,
+                f"blocks_{partition_id}_{label}.json" if label else f"blocks_{partition_id}.json"
+            )
+            blocks_to_json_file(blocks, blocks_json_file)
         
         # Print message based on whether this is partial output
         if label:
@@ -395,22 +418,26 @@ def aggregate_step_by_step_timing(step_by_step_runs: List[Dict]) -> Dict:
         # Collect timing for this step across all runs
         step_times = []
         cumulative_times = []
-        step_number = None
+        timepoint = None
         timestamp = None
+        block_type = None
+        has_action = None
         
         for run in step_by_step_runs:
             if step_idx < len(run['steps']):
                 step = run['steps'][step_idx]
                 step_times.append(step['step_time'])
                 cumulative_times.append(step['cumulative_time'])
-                if step_number is None:
-                    step_number = step['step_number']
-                    timestamp = step['timestamp']
+                if timepoint is None:
+                    timepoint = step['timepoint']
+                    timestamp = step.get('timestamp')
+                    block_type = step.get('block_type')
+                    has_action = step.get('has_action')
         
         # Calculate statistics for this step
         if step_times:
-            aggregated_steps.append({
-                'step_number': step_number,
+            step_data = {
+                'timepoint': timepoint,
                 'timestamp': timestamp,
                 'step_time_stats': {
                     'mean': float(np.mean(step_times)),
@@ -426,7 +453,13 @@ def aggregate_step_by_step_timing(step_by_step_runs: List[Dict]) -> Dict:
                     'max': float(np.max(cumulative_times)),
                     'runs': cumulative_times
                 }
-            })
+            }
+            # Add block_type and has_action if available
+            if block_type is not None:
+                step_data['block_type'] = block_type
+            if has_action is not None:
+                step_data['has_action'] = has_action
+            aggregated_steps.append(step_data)
     
     # Calculate average step time stats
     avg_step_times = [run.get('avg_step_time', 0.0) for run in step_by_step_runs]
@@ -447,6 +480,156 @@ def aggregate_step_by_step_timing(step_by_step_runs: List[Dict]) -> Dict:
         'avg_step_time_stats': avg_step_time_stats,
         'num_runs': len(step_by_step_runs)
     }
+
+
+# =============================================================================
+# EXECUTION HELPER FUNCTIONS
+# =============================================================================
+
+def execute_enfguard_runs(
+    name: str,
+    mfotl_file: str,
+    sig_file: str,
+    log_file: str,
+    func_file: str,
+    label: bool,
+    timeout: Optional[int],
+    output_subdir: Optional[str],
+    step_by_step: bool,
+    repeat_runs: int,
+    is_reference: bool = False
+) -> Tuple[Optional[str], Optional[Dict], Optional[Dict], List[Dict]]:
+    """
+    Execute enfguard in batch or step-by-step mode with multiple runs.
+    
+    Args:
+        name: Display name for logging
+        mfotl_file: Path to MFOTL file
+        sig_file: Path to signature file
+        log_file: Path to log file
+        func_file: Path to functions file
+        label: Enable label output
+        timeout: Optional timeout in seconds
+        output_subdir: Optional directory to save output
+        step_by_step: Enable step-by-step mode
+        repeat_runs: Number of repeat runs
+        is_reference: Whether this is reference execution
+        
+    Returns:
+        Tuple of (stdout, time_stats, aggregated_step_timing, step_by_step_runs)
+    """
+    # Validate step-by-step availability
+    if step_by_step and not STEP_BY_STEP_AVAILABLE:
+        print(f"[{name}] Warning: Step-by-step mode not available, using batch mode")
+        step_by_step = False
+    
+    time_runs = []
+    step_by_step_runs = []
+    stdout_result = None
+    
+    # Execute runs
+    for run_idx in range(repeat_runs):
+        if step_by_step:
+            # Step-by-step execution
+            if run_idx == 0:
+                print(f"[{name}] Step-by-step run {run_idx + 1}/{repeat_runs}")
+            try:
+                step_data = run_enfguard_step_by_step(
+                    mfotl_file, sig_file, log_file, func_file,
+                    label=label, timeout=timeout, output_dir=output_subdir
+                )
+                step_by_step_runs.append(step_data)
+                time_runs.append(step_data.get('total_time', 0.0))
+                
+                if run_idx == 0:
+                    stdout_result = step_data.get('stdout', '')
+                    avg_time = step_data.get('avg_step_time', 0.0)
+                    print(f"[{name}] {step_data['total_steps']} steps, avg {avg_time:.3f}s/step")
+                elif repeat_runs > 1 and (run_idx + 1) % max(1, repeat_runs // 4) == 0:
+                    print(f"[{name}] Progress: {run_idx + 1}/{repeat_runs} runs completed")
+            except Exception as e:
+                print(f"[{name}] Warning: Step-by-step run {run_idx + 1} failed: {e}")
+        else:
+            # Batch execution
+            exit_code, stdout, stderr, elapsed_time = run_enfguard_command(
+                mfotl_file, sig_file, log_file, func_file, label, timeout
+            )
+            
+            if exit_code != 0:
+                status, time_stats = handle_enfguard_failure(
+                    name, exit_code, stderr, stdout, elapsed_time,
+                    output_subdir, run_idx == 0
+                )
+                return None, None, None, []
+            
+            time_runs.append(elapsed_time)
+            print(f"[{name}] Batch run {run_idx + 1}/{repeat_runs}: {elapsed_time:.3f}s")
+            
+            if run_idx == 0:
+                stdout_result = stdout
+    
+    # Aggregate results
+    if not time_runs:
+        print(f"[{name}] ✗ ERROR: No timing data collected")
+        return None, None, None, []
+    
+    time_stats = calculate_time_stats(time_runs)
+    aggregated_step_timing = None
+    
+    if step_by_step_runs:
+        aggregated_step_timing = aggregate_step_by_step_timing(step_by_step_runs)
+        if repeat_runs > 1:
+            avg_stats = aggregated_step_timing['avg_step_time_stats']
+            print(f"[{name}] Aggregated: mean {avg_stats['mean']:.3f}s/step (±{avg_stats['std']:.3f}s)")
+    
+    return stdout_result, time_stats, aggregated_step_timing, step_by_step_runs
+
+
+def save_execution_output(
+    name: str,
+    stdout: str,
+    output_subdir: Optional[str],
+    step_by_step_runs: List[Dict],
+    is_reference: bool = False
+) -> Optional[str]:
+    """
+    Save execution output and handle JSON files.
+    
+    Args:
+        name: File name (e.g., "reference.mfotl" or partition name)
+        stdout: Standard output to save
+        output_subdir: Directory to save output
+        step_by_step_runs: List of step-by-step run data (empty if batch mode)
+        is_reference: Whether this is reference execution
+        
+    Returns:
+        Path to blocks JSON file if created, else None
+    """
+    if not output_subdir:
+        return None
+    
+    # Determine label and ID
+    label = ""
+    if is_reference:
+        partition_id = "reference"
+    else:
+        partition_id = get_partition_id(name)
+    
+    # Save stdout (skip JSON if step-by-step already saved it)
+    skip_json = len(step_by_step_runs) > 0
+    save_partition_output(name, stdout, output_subdir, label=label, skip_json=skip_json)
+    
+    # Handle step-by-step JSON file renaming
+    blocks_json_path = None
+    if step_by_step_runs and step_by_step_runs[0].get('blocks_json'):
+        src_json = step_by_step_runs[0]['blocks_json']
+        parsed_output_dir = os.path.join(output_subdir, "parsed_output")
+        dst_json = os.path.join(parsed_output_dir, f"blocks_{partition_id}.json")
+        if os.path.exists(src_json):
+            shutil.move(src_json, dst_json)
+            blocks_json_path = dst_json
+    
+    return blocks_json_path
 
 
 # =============================================================================
@@ -480,97 +663,24 @@ def run_reference_enfguard(
         
     Returns:
         Tuple of (reference_output, reference_time_stats) or (None, None) if failed
-        reference_time_stats is a dict with 'mean', 'std', 'min', 'max', 'runs' if successful
-        If step_by_step is True, reference_time_stats will also include 'step_by_step_timing'
     """
     print(f"RUNNING REFERENCE FILE: {reference_mfotl}")
     if repeat_runs > 1:
         print(f"  Repeat runs: {repeat_runs} (timing only)")
     
-    # If step-by-step is requested but not available, fall back to batch mode
-    if step_by_step and not STEP_BY_STEP_AVAILABLE:
-        print("[reference] Warning: Step-by-step mode requested but not available, falling back to batch mode")
-        step_by_step = False
-    
     try:
-        time_runs = []
-        step_by_step_runs = []
-        stdout_result = None
+        # Execute runs
+        stdout_result, time_stats, aggregated_step_timing, step_runs = execute_enfguard_runs(
+            "reference", reference_mfotl, sig_file, log_file, func_file,
+            label, timeout, output_subdir, step_by_step, repeat_runs, is_reference=True
+        )
         
-        # Only run batch mode if step-by-step is disabled
-        if not step_by_step:
-            for run_idx in range(repeat_runs):
-                exit_code, stdout, stderr, elapsed_time = run_enfguard_command(
-                    reference_mfotl, sig_file, log_file, func_file, label, timeout
-                )
-                
-                if exit_code != 0:
-                    status, time_stats = handle_enfguard_failure(
-                        "reference.mfotl", exit_code, stderr, stdout, elapsed_time,
-                        output_subdir, run_idx == 0
-                    )
-                    print()
-                    return None, None
-                
-                time_runs.append(elapsed_time)
-                print(f"[reference] Batch run {run_idx + 1}/{repeat_runs}: {elapsed_time:.3f}s")
-                
-                # Save output only on first run
-                if run_idx == 0:
-                    stdout_result = stdout
-                    if output_subdir:
-                        save_partition_output("reference.mfotl", stdout, output_subdir)
-        
-        # Run step-by-step mode if enabled
-        if step_by_step and STEP_BY_STEP_AVAILABLE:
-            for run_idx in range(repeat_runs):
-                if run_idx == 0:
-                    print(f"[reference] Step-by-step run {run_idx + 1}/{repeat_runs}")
-                try:
-                    step_by_step_data = run_enfguard_step_by_step(
-                        reference_mfotl,
-                        sig_file,
-                        log_file,
-                        func_file,
-                        label=label,
-                        timeout=timeout,
-                        output_dir=None
-                    )
-                    step_by_step_runs.append(step_by_step_data)
-                    
-                    # Extract total time from step-by-step execution
-                    total_time = step_by_step_data.get('total_time', 0.0)
-                    time_runs.append(total_time)
-                    
-                    # Save stdout on first run
-                    if run_idx == 0:
-                        stdout_result = step_by_step_data.get('stdout', '')
-                        if output_subdir:
-                            save_partition_output("reference.mfotl", stdout_result, output_subdir)
-                    
-                    if run_idx == 0:
-                        avg_time = step_by_step_data.get('avg_step_time', 0.0)
-                        print(f"[reference] Step-by-step run {run_idx + 1}/{repeat_runs}: {step_by_step_data['total_steps']} steps, avg {avg_time:.3f}s/step")
-                    elif repeat_runs > 1 and (run_idx + 1) % max(1, repeat_runs // 4) == 0:
-                        # Print progress for multi-run step-by-step (every 25%)
-                        print(f"[reference] Step-by-step progress: {run_idx + 1}/{repeat_runs} runs completed")
-                except Exception as e:
-                    print(f"[reference] Warning: Step-by-step timing failed on run {run_idx + 1}: {e}")
-        
-        # Aggregate step-by-step timing if collected
-        aggregated_step_timing = None
-        if step_by_step_runs:
-            aggregated_step_timing = aggregate_step_by_step_timing(step_by_step_runs)
-            if repeat_runs > 1:
-                avg_stats = aggregated_step_timing['avg_step_time_stats']
-                print(f"[reference] Step-by-step aggregated: mean {avg_stats['mean']:.3f}s/step (±{avg_stats['std']:.3f}s)")
-        
-        # Ensure we have timing data
-        if not time_runs:
-            print("[reference] ✗ ERROR: No timing data collected (both batch and step-by-step failed)")
+        if stdout_result is None:
+            print()
             return None, None
         
-        time_stats = calculate_time_stats(time_runs)
+        # Save output on first run
+        save_execution_output("reference.mfotl", stdout_result, output_subdir, step_runs, is_reference=True)
         
         # Add step-by-step timing to time_stats if available
         if aggregated_step_timing:
@@ -582,9 +692,8 @@ def run_reference_enfguard(
                 
     except Exception as e:
         print(f"✗ EXCEPTION: {e}")
-    
-    print()
-    return None, None
+        print()
+        return None, None
 
 
 def run_partition_enfguard(
@@ -602,7 +711,6 @@ def run_partition_enfguard(
 ) -> Dict:
     """
     Run enfguard on a single partition file and compare with reference.
-    Optionally also collect step-by-step timing information.
     
     Args:
         mfotl_file: Path to partition MFOTL file
@@ -623,133 +731,41 @@ def run_partition_enfguard(
     partition_name = mfotl_file.name
     print(f"\n[{partition_name}] Running enfguard...")
     
-    # If step-by-step is requested but not available, fall back to batch mode
-    if step_by_step and not STEP_BY_STEP_AVAILABLE:
-        print(f"[{partition_name}] Warning: Step-by-step mode requested but not available, falling back to batch mode")
-        step_by_step = False
-    
     try:
-        # Collect timing measurements
-        time_runs = []
-        step_by_step_runs = []
-        stdout_result = None
-        output_matches = None
-        match_percentage = None
+        # Execute runs
+        stdout_result, time_stats, aggregated_step_timing, step_runs = execute_enfguard_runs(
+            partition_name, str(mfotl_file), sig_file, log_file, func_file,
+            label, timeout, output_subdir, step_by_step, repeat_runs
+        )
         
-        # Only run batch mode if step-by-step is disabled
-        if not step_by_step:
-            for run_idx in range(repeat_runs):
-                exit_code, stdout, stderr, elapsed_time = run_enfguard_command(
-                    str(mfotl_file), sig_file, log_file, func_file, label, timeout
-                )
-                
-                if exit_code != 0:
-                    status, time_stats = handle_enfguard_failure(
-                        partition_name, exit_code, stderr, stdout, elapsed_time,
-                        output_subdir, run_idx == 0
-                    )
-                    return create_result_dict(
-                        partition_name, status, exit_code, time_stats,
-                        output=stdout if stdout else None
-                    )
-                
-                # Success - collect timing
-                time_runs.append(elapsed_time)
-                print(f"[{partition_name}] Batch run {run_idx + 1}/{repeat_runs}: {elapsed_time:.3f}s")
-                
-                # Only do once on first run
-                if run_idx == 0:
-                    stdout_result = stdout
-                    
-                    # Save partition output if output_subdir is provided
-                    if output_subdir:
-                        save_partition_output(partition_name, stdout, output_subdir)
-                    
-                    # Compare with reference if available
-                    if reference_output is not None:
-                        output_matches, match_percentage = compare_and_save_diff(
-                            partition_name, stdout, reference_output, 
-                            diff_subdir
-                        )
-        
-        # Run step-by-step mode if enabled
-        if step_by_step and STEP_BY_STEP_AVAILABLE:
-            for run_idx in range(repeat_runs):
-                if run_idx == 0:
-                    print(f"[{partition_name}] Step-by-step run {run_idx + 1}/{repeat_runs}")
-                try:
-                    step_by_step_data = run_enfguard_step_by_step(
-                        str(mfotl_file),
-                        sig_file,
-                        log_file,
-                        func_file,
-                        label=label,
-                        timeout=timeout,
-                        output_dir=None
-                    )
-                    step_by_step_runs.append(step_by_step_data)
-                    
-                    # Extract total time from step-by-step execution
-                    total_time = step_by_step_data.get('total_time', 0.0)
-                    time_runs.append(total_time)
-                    
-                    # Save stdout and perform comparison on first run
-                    if run_idx == 0:
-                        stdout_result = step_by_step_data.get('stdout', '')
-                        
-                        if output_subdir:
-                            save_partition_output(partition_name, stdout_result, output_subdir)
-                        
-                        # Compare with reference if available
-                        if reference_output is not None:
-                            output_matches, match_percentage = compare_and_save_diff(
-                                partition_name, stdout_result, reference_output, 
-                                diff_subdir
-                            )
-                    
-                    if run_idx == 0:
-                        avg_time = step_by_step_data.get('avg_step_time', 0.0)
-                        print(f"[{partition_name}] Step-by-step run {run_idx + 1}/{repeat_runs}: {step_by_step_data['total_steps']} steps, avg {avg_time:.3f}s/step")
-                    elif repeat_runs > 1 and (run_idx + 1) % max(1, repeat_runs // 4) == 0:
-                        # Print progress for multi-run step-by-step (every 25%)
-                        print(f"[{partition_name}] Step-by-step progress: {run_idx + 1}/{repeat_runs} runs completed")
-                except Exception as e:
-                    print(f"[{partition_name}] Warning: Step-by-step timing failed on run {run_idx + 1}: {e}")
-        
-        # Aggregate step-by-step timing if collected
-        aggregated_step_timing = None
-        if step_by_step_runs:
-            aggregated_step_timing = aggregate_step_by_step_timing(step_by_step_runs)
-            if repeat_runs > 1:
-                avg_stats = aggregated_step_timing['avg_step_time_stats']
-                print(f"[{partition_name}] Step-by-step aggregated: mean {avg_stats['mean']:.3f}s/step (±{avg_stats['std']:.3f}s)")
-        
-        # Ensure we have timing data
-        if not time_runs:
-            print(f"[{partition_name}] ✗ ERROR: No timing data collected (both batch and step-by-step failed)")
+        if stdout_result is None:
             return create_result_dict(
-                partition_name, "ERROR", -1, calculate_time_stats([]),
-                output=None
+                partition_name, "ERROR", -1, calculate_time_stats([]), output=None
             )
         
-        time_stats = calculate_time_stats(time_runs)
-        status = "✓ SUCCESS"
+        # Save output on first run
+        blocks_json_path = save_execution_output(partition_name, stdout_result, output_subdir, step_runs)
+        
+        # Compare with reference if available
+        output_matches = None
+        match_percentage = None
+        if reference_output is not None:
+            output_matches, match_percentage = compare_and_save_diff(
+                partition_name, stdout_result, reference_output, diff_subdir
+            )
         
         # Print result
+        status = "✓ SUCCESS"
         if repeat_runs > 1:
             print_timing_result(partition_name, status, time_stats, repeat_runs)
         elif reference_output is not None:
-            if output_matches:
-                print(f"[{partition_name}] {status} - Time: {time_stats['mean']:.2f}s - Output: ✓ MATCHES reference (100.00%)")
-            else:
-                match_pct_str = f"{match_percentage:.2f}%" if match_percentage is not None else "unknown"
-                print(f"[{partition_name}] {status} - Time: {time_stats['mean']:.2f}s - Output: ✗ DIFFERS from reference ({match_pct_str} matching)")
+            match_str = "✓ MATCHES" if output_matches else "✗ DIFFERS"
+            match_pct = f"{match_percentage:.2f}%" if match_percentage is not None else "unknown"
+            print(f"[{partition_name}] {status} - Time: {time_stats['mean']:.2f}s - Output: {match_str} ({match_pct})")
             
-            # Always print diff file location if saved
             if diff_subdir:
                 partition_id = get_partition_id(partition_name)
-                diff_file = os.path.join(diff_subdir, f"diff_{partition_id}.json")
-                print(f"  Detailed diff saved to: {diff_file}")
+                print(f"  Detailed diff saved to: {os.path.join(diff_subdir, f'diff_{partition_id}.json')}")
         else:
             print(f"[{partition_name}] {status} - Time: {time_stats['mean']:.2f}s")
         
@@ -758,7 +774,8 @@ def run_partition_enfguard(
             output=stdout_result,
             output_matches=output_matches,
             match_percentage=match_percentage,
-            step_by_step_timing=aggregated_step_timing
+            step_by_step_timing=aggregated_step_timing,
+            blocks_json=blocks_json_path
         )
         
     except Exception as e:
@@ -790,9 +807,9 @@ def combine_and_compare_partitions(
         return None
     
     # Collect all successful partition outputs
-    successful_outputs = [r['output'] for r in results if r['output'] is not None]
+    successful_results = [r for r in results if r['output'] is not None]
     
-    if not successful_outputs:
+    if not successful_results:
         return None
     
     print("\n" + "="*80)
@@ -800,29 +817,53 @@ def combine_and_compare_partitions(
     print("="*80)
     
     # Parse all partition outputs into blocks
+    # Use saved JSON files if available (from step-by-step execution)
+    # Otherwise parse the output text
     all_blocks = []
-    for output in successful_outputs:
-        blocks = parse_enforcer_output(output)
+    for result in successful_results:
+        blocks_json_path = result.get('blocks_json')
+        if blocks_json_path and os.path.exists(blocks_json_path):
+            # Load blocks directly from JSON (already has correct timepoints)
+            blocks = load_blocks_from_json(blocks_json_path)
+        else:
+            # Parse output (batch mode - assigns sequential timepoints)
+            output = result['output']
+            blocks = parse_enforcer_output(output)
         all_blocks.extend(blocks)
     
-    # Combine blocks by timestamp
-    combined_blocks = combine_blocks_by_timestamp(all_blocks)
+    # Combine blocks by timepoint (or timestamp if not available)
+    combined_blocks = combine_blocks_by_timepoint(all_blocks)
     
     # Reconstruct combined output as text
     combined_output_lines = [block.raw_content for block in combined_blocks]
     combined_output = '\n'.join(combined_output_lines)
     
-    # Save combined output
+    # Save combined output (both text and JSON)
     if output_subdir:
         combined_output_file = os.path.join(output_subdir, "combined_partitions_output.txt")
         with open(combined_output_file, 'w') as f:
             f.write(combined_output)
         print(f"Combined output saved to: {combined_output_file}")
+        
+        # Save combined blocks as JSON
+        parsed_output_dir = os.path.join(output_subdir, "parsed_output")
+        os.makedirs(parsed_output_dir, exist_ok=True)
+        combined_blocks_json_file = os.path.join(parsed_output_dir, "combined_partitions_blocks.json")
+        blocks_to_json_file(combined_blocks, combined_blocks_json_file)
+        print(f"Combined blocks JSON saved to: {combined_blocks_json_file}")
     
     # Compare combined output to reference
-    combined_comparison = compare_enforcer_outputs(
-        reference_output,
-        combined_output,
+    # Load reference blocks from JSON if available (preserves step-by-step timepoints)
+    # Otherwise parse the reference output
+    reference_blocks_json = os.path.join(output_subdir, "parsed_output", "blocks_reference.json") if output_subdir else None
+    if reference_blocks_json and os.path.exists(reference_blocks_json):
+        ref_blocks = load_blocks_from_json(reference_blocks_json)
+    else:
+        ref_blocks = parse_enforcer_output(reference_output)
+    
+    combined_comparison = compare_blocks_json(
+        ref_blocks,
+        combined_blocks,
         "combined_partitions"
     )
     
