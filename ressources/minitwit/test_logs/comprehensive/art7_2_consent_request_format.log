@@ -1,0 +1,7 @@
+@1 Declaration("consent_decl") ConsentDeclarationContainsOtherMatters("consent_decl") Inform("Minitwit, Inc.",1,"consent_decl");
+@2 tick();
+@2 Consent(1,"service");
+@3 tick();
+@3 Collect(1,1,1,"service") PersonalData(1,1);
+@4 tick();
+@4 Write(1,1,1,"service",1) PersonalData(1,1);

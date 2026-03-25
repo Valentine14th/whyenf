@@ -1,0 +1,11 @@
+@1 Collect(1,1,1,"personalized_ad") PersonalData(1,1) Consent(1,"personalized_ad");
+@2 tick();
+@2 Declaration("auto_dec") HasText("auto_dec","We use the content of the page shown to the user to display personalized advertisement") IsAutomatedDecision("auto_dec");
+@3 tick();
+@3 Write(1,1,1,"personalized_ad",1) PersonalData(1,1);
+@4 tick();
+@4 Revoke(1,"personalized_ad");
+@5 tick();
+@5 Consent(1,"personalized_ad");
+@6 tick();
+@6 Read(1,1,1,"personalized_ad",1) PersonalData(1,1);
