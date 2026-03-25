@@ -1,0 +1,12 @@
+{
+  "_comment": "Map partition file names to custom display names",
+  "_example_format": {
+    "partition_file.mfotl": "Custom Name"
+  },
+  "mfotl_1106.mfotl": "Transparency_1106",
+  "mfotl_1128.mfotl": "Erasure_1128",
+  "mfotl_1789.mfotl": "Access_1789",
+  "mfotl_2318.mfotl": "Processing_2318",
+  "mfotl_2382.mfotl": "Requests_2382"
+
+}

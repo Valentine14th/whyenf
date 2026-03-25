@@ -304,7 +304,7 @@ def plot_event_type_differences(extra_event_types: dict, missing_event_types: di
     plt.close()
 
 
-def plot_speedup_comparison(summary_data: dict, results_dir: Path = None, output_file: str = None):
+def plot_speedup_comparison(summary_data: dict, results_dir: Path = None, output_file: str = None, partition_names: dict = None):
     """
     Plot speedup between slowest partition and reference for each log.
     
@@ -312,6 +312,7 @@ def plot_speedup_comparison(summary_data: dict, results_dir: Path = None, output
         summary_data: Multi-log summary JSON data
         results_dir: Optional base directory for loading detailed enforcement results
         output_file: Optional path to save the plot
+        partition_names: Optional dict mapping partition filenames to custom names
     """
     log_results = summary_data['log_results']
     
@@ -387,8 +388,11 @@ def plot_speedup_comparison(summary_data: dict, results_dir: Path = None, output
                                 # Create a summary of which partitions contributed
                                 contributors = {}
                                 for timepoint, (step_time, part_file) in sorted(step_max_times.items()):
-                                    # Simplify partition name
-                                    part_name = part_file.replace('mfotl_', '').replace('.mfotl', '')
+                                    # Use custom name if provided, otherwise simplify partition name
+                                    if partition_names and part_file in partition_names:
+                                        part_name = partition_names[part_file]
+                                    else:
+                                        part_name = part_file.replace('mfotl_', '').replace('.mfotl', '')
                                     if part_name not in contributors:
                                         contributors[part_name] = []
                                     contributors[part_name].append(timepoint)
@@ -519,7 +523,7 @@ def plot_speedup_comparison(summary_data: dict, results_dir: Path = None, output
             print(f"Max speedup: {np.max(valid_speedups_acc):.2f}x")
 
 
-def plot_execution_time_comparison(summary_data: dict, results_dir: Path = None, output_file: str = None):
+def plot_execution_time_comparison(summary_data: dict, results_dir: Path = None, output_file: str = None, partition_names: dict = None):
     """
     Plot execution time comparison between slowest partition and reference for each log.
     
@@ -527,6 +531,7 @@ def plot_execution_time_comparison(summary_data: dict, results_dir: Path = None,
         summary_data: Multi-log summary JSON data
         results_dir: Optional base directory for loading detailed enforcement results
         output_file: Optional path to save the plot
+        partition_names: Optional dict mapping partition filenames to custom names
     """
     log_results = summary_data['log_results']
     
@@ -603,8 +608,11 @@ def plot_execution_time_comparison(summary_data: dict, results_dir: Path = None,
                                 # Create a summary of which partitions contributed
                                 contributors = {}
                                 for timepoint, (step_time, part_file) in sorted(step_max_times.items()):
-                                    # Simplify partition name
-                                    part_name = part_file.replace('mfotl_', '').replace('.mfotl', '')
+                                    # Use custom name if provided, otherwise simplify partition name
+                                    if partition_names and part_file in partition_names:
+                                        part_name = partition_names[part_file]
+                                    else:
+                                        part_name = part_file.replace('mfotl_', '').replace('.mfotl', '')
                                     if part_name not in contributors:
                                         contributors[part_name] = []
                                     contributors[part_name].append(timepoint)
@@ -895,8 +903,25 @@ def main():
                        help='Directory containing partition MFOTL files')
     parser.add_argument('-o', '--output-prefix', 
                        help='Output file prefix (will create 5 PNG files with different suffixes)')
+    parser.add_argument('--partition-names', type=str,
+                       help='JSON file with partition name mappings')
     
     args = parser.parse_args()
+    
+    # Load partition names if provided
+    partition_names = None
+    if args.partition_names:
+        partition_names_path = Path(args.partition_names)
+        if not partition_names_path.exists():
+            print(f"Error: Partition names file not found: {partition_names_path}")
+            return 1
+        try:
+            with open(partition_names_path, 'r') as f:
+                partition_names = json.load(f)
+            print(f"Loaded {len(partition_names)} partition name mappings")
+        except Exception as e:
+            print(f"Error loading partition names: {e}")
+            return 1
     
     summary_path = Path(args.summary_file)
     results_dir = Path(args.results_dir)
@@ -938,10 +963,10 @@ def main():
     plot_event_type_differences(extra_event_types, missing_event_types, output_4)
     
     print("\n=== Generating Plot 3a: Speedup Comparison ===")
-    plot_speedup_comparison(summary_data, results_dir, output_2a)
+    plot_speedup_comparison(summary_data, results_dir, output_2a, partition_names)
     
     print("\n=== Generating Plot 3b: Execution Time Comparison ===")
-    plot_execution_time_comparison(summary_data, results_dir, output_2b)
+    plot_execution_time_comparison(summary_data, results_dir, output_2b, partition_names)
     
     print("\n=== Generating Plot 4: Complexity vs Time (All Logs) ===")
     plot_complexity_vs_time_all_logs(summary_data, results_dir, mfotl_dir, output_3)

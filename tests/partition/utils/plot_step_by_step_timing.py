@@ -49,39 +49,56 @@ def detect_outliers(values, method='iqr', threshold=3.0):
     return outliers.tolist()
 
 
-def filter_outliers_from_steps(steps):
+def filter_outliers_within_step_runs(step):
     """
-    Filter outlier step times from a list of steps.
+    Filter outlier runs within a single step and recalculate statistics.
     
     Args:
-        steps: List of step dictionaries with 'step_time_stats'
+        step: Step dictionary with 'step_time_stats' containing 'runs'
     
     Returns:
-        Tuple of (filtered_steps, outlier_steps)
+        Tuple of (filtered_step_stats, num_outliers_removed)
+        - filtered_step_stats: Updated stats dict with outliers removed
+        - num_outliers_removed: Number of runs that were filtered out
     """
-    if not steps:
-        return [], []
+    step_time_stats = step.get('step_time_stats', {})
+    runs = step_time_stats.get('runs', [])
     
-    # Extract step times
-    step_times = [s['step_time_stats']['mean'] for s in steps]
+    if not runs or len(runs) < 4:
+        # Not enough runs to detect outliers, return original stats
+        return step_time_stats, 0
     
-    # Detect outliers using IQR method with threshold=3.0 for extreme outliers
-    outlier_mask = detect_outliers(step_times, method='iqr', threshold=3.0)
+    # Detect outliers within this step's runs
+    outlier_mask = detect_outliers(runs, method='iqr', threshold=3.0)
     
-    # Split into normal and outlier steps
-    filtered_steps = [s for s, is_outlier in zip(steps, outlier_mask) if not is_outlier]
-    outlier_steps = [s for s, is_outlier in zip(steps, outlier_mask) if is_outlier]
+    # Filter out outlier runs
+    filtered_runs = [run for run, is_outlier in zip(runs, outlier_mask) if not is_outlier]
+    num_outliers = sum(outlier_mask)
     
-    return filtered_steps, outlier_steps
+    # If all runs were outliers or none remain, return original
+    if not filtered_runs:
+        return step_time_stats, 0
+    
+    # Recalculate statistics with filtered runs
+    filtered_stats = {
+        'mean': np.mean(filtered_runs),
+        'std': np.std(filtered_runs),
+        'min': np.min(filtered_runs),
+        'max': np.max(filtered_runs),
+        'runs': filtered_runs
+    }
+    
+    return filtered_stats, num_outliers
 
 
-def plot_step_by_step_timing(json_file: str, output_file: str = None):
+def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_names: dict = None):
     """
     Plot step-by-step timing from enforcement results JSON.
     
     Args:
         json_file: Path to partition_enforcement_results.json
         output_file: Optional path to save the plot (default: show interactive plot)
+        partition_names: Optional dict mapping partition filenames to custom display names
     """
     # Load JSON data
     with open(json_file, 'r') as f:
@@ -128,8 +145,8 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None):
     batch_times = []
     total_times = []
     
-    # Track outlier counts
-    total_outliers_removed = 0
+    # Track outlier run counts
+    total_outlier_runs_removed = 0
     
     # Define marker styles for different block types
     marker_styles = {
@@ -143,18 +160,35 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None):
     
     # Plot each partition
     for idx, partition in enumerate(partitions_with_timing):
-        partition_name = partition['file'].replace('minitwit_gdpr_4_partition_', 'P').replace('.mfotl', '')
-        all_steps = partition['step_by_step_timing']['steps']
+        partition_file = partition['file']
+        # Use custom name if provided, otherwise use default naming
+        if partition_names and partition_file in partition_names:
+            partition_name = partition_names[partition_file]
+        else:
+            partition_name = partition_file.replace('minitwit_gdpr_4_partition_', 'P').replace('.mfotl', '')
         
-        # Filter outliers
-        steps, outlier_steps = filter_outliers_from_steps(all_steps)
-        if outlier_steps:
-            print(f"  {partition_name}: Excluded {len(outlier_steps)} extreme outlier(s)")
-            total_outliers_removed += len(outlier_steps)
+        # Process all steps and filter outlier runs within each step
+        original_steps = partition['step_by_step_timing']['steps']
+        steps = []
+        partition_outliers_removed = 0
         
-        # Skip if all steps were filtered out
+        for step in original_steps:
+            # Filter outliers within this step's runs
+            filtered_stats, num_outliers = filter_outliers_within_step_runs(step)
+            partition_outliers_removed += num_outliers
+            
+            # Create updated step with filtered stats
+            updated_step = step.copy()
+            updated_step['step_time_stats'] = filtered_stats
+            steps.append(updated_step)
+        
+        if partition_outliers_removed > 0:
+            print(f"  {partition_name}: Filtered {partition_outliers_removed} outlier run(s) across all steps")
+            total_outlier_runs_removed += partition_outliers_removed
+        
+        # Skip if no steps available
         if not steps:
-            print(f"  {partition_name}: Warning - all steps were outliers, skipping partition")
+            print(f"  {partition_name}: Warning - no steps found, skipping partition")
             continue
         
         batch_time = partition['time_stats']['mean']
@@ -223,17 +257,28 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None):
     
     # Plot reference timing if available
     if reference_timing and reference_timing.get('steps'):
-        all_steps = reference_timing['steps']
+        # Process all steps and filter outlier runs within each step
+        original_steps = reference_timing['steps']
+        steps = []
+        reference_outliers_removed = 0
         
-        # Filter outliers
-        steps, outlier_steps = filter_outliers_from_steps(all_steps)
-        if outlier_steps:
-            print(f"  Reference: Excluded {len(outlier_steps)} extreme outlier(s)")
-            total_outliers_removed += len(outlier_steps)
+        for step in original_steps:
+            # Filter outliers within this step's runs
+            filtered_stats, num_outliers = filter_outliers_within_step_runs(step)
+            reference_outliers_removed += num_outliers
+            
+            # Create updated step with filtered stats
+            updated_step = step.copy()
+            updated_step['step_time_stats'] = filtered_stats
+            steps.append(updated_step)
         
-        # Skip if all steps were filtered out
+        if reference_outliers_removed > 0:
+            print(f"  Reference: Filtered {reference_outliers_removed} outlier run(s) across all steps")
+            total_outlier_runs_removed += reference_outliers_removed
+        
+        # Skip if no steps available
         if not steps:
-            print("  Reference: Warning - all steps were outliers, skipping reference")
+            print("  Reference: Warning - no steps found, skipping reference")
         else:
             timepoints = [s['timepoint'] for s in steps]
             step_times = [s['step_time_stats']['mean'] for s in steps]
@@ -330,10 +375,22 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None):
                 timestamp_labels.append(str(curr_timestamp))
             prev_timestamp = curr_timestamp
         
+        # Limit number of ticks if there are too many timestamp changes
+        max_ticks = 15  # Maximum number of ticks to display
+        if len(timestamp_positions) > max_ticks:
+            # Select evenly spaced indices
+            step = len(timestamp_positions) // max_ticks
+            indices = list(range(0, len(timestamp_positions), step))
+            # Always include the last timestamp
+            if indices[-1] != len(timestamp_positions) - 1:
+                indices.append(len(timestamp_positions) - 1)
+            timestamp_positions = [timestamp_positions[i] for i in indices]
+            timestamp_labels = [timestamp_labels[i] for i in indices]
+        
         # Set up secondary axis with timestamp labels
         ax2.set_xlim(ax.get_xlim())
         ax2.set_xticks(timestamp_positions)
-        ax2.set_xticklabels(timestamp_labels, rotation=45, ha='left')
+        ax2.set_xticklabels(timestamp_labels, rotation=45, ha='left', fontsize=9)
         ax2.set_xlabel('Timestamp', fontsize=12, fontweight='bold')
     
     # Formatting
@@ -344,8 +401,8 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None):
         title += ' (Partitions vs Reference)'
     else:
         title += ' per Partition'
-    if total_outliers_removed > 0:
-        title += f' ({total_outliers_removed} extreme outlier(s) excluded)'
+    if total_outlier_runs_removed > 0:
+        title += f' ({total_outlier_runs_removed} outlier run(s) filtered)'
     if any_multiple_runs:
         title += ' (shaded regions show ±1 std dev)'
     ax.set_title(title, fontsize=14, fontweight='bold')
@@ -447,14 +504,29 @@ def main():
                        help='Path to partition_enforcement_results.json')
     parser.add_argument('-o', '--output', 
                        help='Output file path (PNG, PDF, SVG, etc.). If not specified, shows interactive plot.')
+    parser.add_argument('--partition-names', type=str,
+                       help='JSON file with partition name mappings')
     
     args = parser.parse_args()
+    
+    # Load partition names if provided
+    partition_names = None
+    if args.partition_names:
+        if not Path(args.partition_names).exists():
+            print(f"Error: Partition names file not found: {args.partition_names}")
+            return 1
+        try:
+            with open(args.partition_names, 'r') as f:
+                partition_names = json.load(f)
+        except Exception as e:
+            print(f"Error loading partition names: {e}")
+            return 1
     
     if not Path(args.json_file).exists():
         print(f"Error: File not found: {args.json_file}")
         return 1
     
-    plot_step_by_step_timing(args.json_file, args.output)
+    plot_step_by_step_timing(args.json_file, args.output, partition_names)
     return 0
 
 
