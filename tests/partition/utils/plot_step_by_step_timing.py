@@ -7,8 +7,72 @@ Shows runtime per step for each partition with reference lines for batch and tot
 import argparse
 import json
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import numpy as np
 from pathlib import Path
+
+
+def detect_outliers(values, method='iqr', threshold=3.0):
+    """
+    Detect outliers in a list of values.
+    
+    Args:
+        values: List of numeric values
+        method: 'iqr' (Interquartile Range) or 'zscore'
+        threshold: For IQR method, multiplier for IQR (default 3.0 for extreme outliers)
+                   For zscore method, number of standard deviations (default 3.0)
+    
+    Returns:
+        List of booleans indicating whether each value is an outlier
+    """
+    if len(values) < 4:
+        # Not enough data to detect outliers
+        return [False] * len(values)
+    
+    values_array = np.array(values)
+    
+    if method == 'iqr':
+        q1 = np.percentile(values_array, 25)
+        q3 = np.percentile(values_array, 75)
+        iqr = q3 - q1
+        lower_bound = q1 - threshold * iqr
+        upper_bound = q3 + threshold * iqr
+        outliers = (values_array < lower_bound) | (values_array > upper_bound)
+    else:  # zscore
+        mean = np.mean(values_array)
+        std = np.std(values_array)
+        if std == 0:
+            return [False] * len(values)
+        z_scores = np.abs((values_array - mean) / std)
+        outliers = z_scores > threshold
+    
+    return outliers.tolist()
+
+
+def filter_outliers_from_steps(steps):
+    """
+    Filter outlier step times from a list of steps.
+    
+    Args:
+        steps: List of step dictionaries with 'step_time_stats'
+    
+    Returns:
+        Tuple of (filtered_steps, outlier_steps)
+    """
+    if not steps:
+        return [], []
+    
+    # Extract step times
+    step_times = [s['step_time_stats']['mean'] for s in steps]
+    
+    # Detect outliers using IQR method with threshold=3.0 for extreme outliers
+    outlier_mask = detect_outliers(step_times, method='iqr', threshold=3.0)
+    
+    # Split into normal and outlier steps
+    filtered_steps = [s for s, is_outlier in zip(steps, outlier_mask) if not is_outlier]
+    outlier_steps = [s for s, is_outlier in zip(steps, outlier_mask) if is_outlier]
+    
+    return filtered_steps, outlier_steps
 
 
 def plot_step_by_step_timing(json_file: str, output_file: str = None):
@@ -64,80 +128,169 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None):
     batch_times = []
     total_times = []
     
+    # Track outlier counts
+    total_outliers_removed = 0
+    
+    # Define marker styles for different block types
+    marker_styles = {
+        ('reactive', True): {'marker': 'o', 'label_suffix': ' (R+A)'},      # Reactive with action: circle
+        ('reactive', False): {'marker': 'o', 'label_suffix': ' (R)',        # Reactive no action: circle (faded)
+                             'facecolor': 'none'},
+        ('proactive', True): {'marker': 's', 'label_suffix': ' (P+A)'},     # Proactive with action: square
+        ('proactive', False): {'marker': 's', 'label_suffix': ' (P)',       # Proactive no action: square (faded)
+                              'facecolor': 'none'}
+    }
+    
     # Plot each partition
     for idx, partition in enumerate(partitions_with_timing):
         partition_name = partition['file'].replace('minitwit_gdpr_4_partition_', 'P').replace('.mfotl', '')
-        steps = partition['step_by_step_timing']['steps']
+        all_steps = partition['step_by_step_timing']['steps']
+        
+        # Filter outliers
+        steps, outlier_steps = filter_outliers_from_steps(all_steps)
+        if outlier_steps:
+            print(f"  {partition_name}: Excluded {len(outlier_steps)} extreme outlier(s)")
+            total_outliers_removed += len(outlier_steps)
+        
+        # Skip if all steps were filtered out
+        if not steps:
+            print(f"  {partition_name}: Warning - all steps were outliers, skipping partition")
+            continue
+        
         batch_time = partition['time_stats']['mean']
         total_time = partition['step_by_step_timing']['total_time_stats']['mean']
         
         batch_times.append(batch_time)
         total_times.append(total_time)
         
-        # Extract step numbers, step times, and timestamps
-        step_numbers = [s['step_number'] for s in steps]
+        # Extract timepoints, step times, timestamps, and block metadata
+        timepoints = [s['timepoint'] for s in steps]
         step_times = [s['step_time_stats']['mean'] for s in steps]
         step_stds = [s['step_time_stats']['std'] for s in steps]
-        timestamps = [s['timestamp'] for s in steps]
+        timestamps = [s.get('timestamp', s['timepoint']) for s in steps]  # Fall back to timepoint if timestamp missing
+        
+        # Group points by block type for different markers
+        block_groups = {}
+        for s in steps:
+            block_type = s.get('block_type', 'unknown')
+            has_action = s.get('has_action', False)
+            key = (block_type, has_action)
+            if key not in block_groups:
+                block_groups[key] = {'timepoints': [], 'times': [], 'stds': []}
+            block_groups[key]['timepoints'].append(s['timepoint'])
+            block_groups[key]['times'].append(s['step_time_stats']['mean'])
+            block_groups[key]['stds'].append(s['step_time_stats']['std'])
         
         # Check if multiple runs were performed (std > 0 indicates repeated runs)
         num_runs = partition['step_by_step_timing'].get('num_runs', 1)
         has_variance = num_runs > 1 and any(std > 0 for std in step_stds)
         
-        if has_variance:
-            # Plot line with shaded error region (std)
-            ax.plot(step_numbers, step_times, 
-                    marker='o', markersize=4, 
-                    linewidth=1.5, 
-                    label=partition_name, 
-                    color=colors[idx],
-                    alpha=0.8)
+        # Plot connecting line first (without markers)
+        ax.plot(timepoints, step_times, 
+                linewidth=1.5, 
+                color=colors[idx],
+                alpha=0.8,
+                zorder=1)
+        
+        # Plot points with different markers based on block type
+        for block_key, group_data in block_groups.items():
+            style = marker_styles.get(block_key, {'marker': 'x'})
+            marker = style.get('marker', 'x')
+            facecolor = style.get('facecolor', colors[idx])
             
+            # Only add label for first group to avoid legend clutter
+            label = None
+            if block_key == list(block_groups.keys())[0]:
+                label = partition_name
+            
+            ax.scatter(group_data['timepoints'], group_data['times'],
+                      marker=marker, s=40,
+                      facecolor=facecolor if facecolor != 'none' else 'none',
+                      edgecolor=colors[idx],
+                      linewidth=1.5,
+                      label=label,
+                      alpha=0.9,
+                      zorder=2)
+        
+        if has_variance:
             # Add shaded region for standard deviation
             step_times_array = np.array(step_times)
             step_stds_array = np.array(step_stds)
-            ax.fill_between(step_numbers, 
+            ax.fill_between(timepoints, 
                            step_times_array - step_stds_array, 
                            step_times_array + step_stds_array,
-                           color=colors[idx], alpha=0.2)
-        else:
-            # Plot line without error region (single run)
-            ax.plot(step_numbers, step_times, 
-                    marker='o', markersize=4, 
-                    linewidth=1.5, 
-                    label=partition_name, 
-                    color=colors[idx],
-                    alpha=0.8)
+                           color=colors[idx], alpha=0.2, zorder=0)
     
     # Plot reference timing if available
     if reference_timing and reference_timing.get('steps'):
-        steps = reference_timing['steps']
-        step_numbers = [s['step_number'] for s in steps]
-        step_times = [s['step_time_stats']['mean'] for s in steps]
-        step_stds = [s['step_time_stats']['std'] for s in steps]
-        timestamps = [s['timestamp'] for s in steps]
+        all_steps = reference_timing['steps']
         
-        num_runs = reference_timing.get('num_runs', 1)
-        has_variance = num_runs > 1 and any(std > 0 for std in step_stds)
+        # Filter outliers
+        steps, outlier_steps = filter_outliers_from_steps(all_steps)
+        if outlier_steps:
+            print(f"  Reference: Excluded {len(outlier_steps)} extreme outlier(s)")
+            total_outliers_removed += len(outlier_steps)
         
-        # Plot with distinct style (black dashed line, thicker)
-        ax.plot(step_numbers, step_times, 
-                marker='s', markersize=6,  # Square markers
-                linewidth=2.5, 
-                linestyle='--',  # Dashed line
-                label='Reference (full formula)', 
-                color='black',
-                alpha=0.9,
-                zorder=10)  # Plot on top
-        
-        if has_variance:
-            # Add shaded region for standard deviation
-            step_times_array = np.array(step_times)
-            step_stds_array = np.array(step_stds)
-            ax.fill_between(step_numbers, 
-                           step_times_array - step_stds_array, 
-                           step_times_array + step_stds_array,
-                           color='gray', alpha=0.2, zorder=9)
+        # Skip if all steps were filtered out
+        if not steps:
+            print("  Reference: Warning - all steps were outliers, skipping reference")
+        else:
+            timepoints = [s['timepoint'] for s in steps]
+            step_times = [s['step_time_stats']['mean'] for s in steps]
+            step_stds = [s['step_time_stats']['std'] for s in steps]
+            timestamps = [s.get('timestamp', s['timepoint']) for s in steps]  # Fall back to timepoint if timestamp missing
+            
+            # Group points by block type for different markers
+            block_groups = {}
+            for s in steps:
+                block_type = s.get('block_type', 'unknown')
+                has_action = s.get('has_action', False)
+                key = (block_type, has_action)
+                if key not in block_groups:
+                    block_groups[key] = {'timepoints': [], 'times': [], 'stds': []}
+                block_groups[key]['timepoints'].append(s['timepoint'])
+                block_groups[key]['times'].append(s['step_time_stats']['mean'])
+                block_groups[key]['stds'].append(s['step_time_stats']['std'])
+            
+            num_runs = reference_timing.get('num_runs', 1)
+            has_variance = num_runs > 1 and any(std > 0 for std in step_stds)
+            
+            # Plot connecting line with distinct style (black dashed line, thicker)
+            ax.plot(timepoints, step_times, 
+                    linewidth=2.5, 
+                    linestyle='--',  # Dashed line
+                    color='black',
+                    alpha=0.9,
+                    zorder=10)
+            
+            # Plot points with different markers based on block type
+            for block_key, group_data in block_groups.items():
+                style = marker_styles.get(block_key, {'marker': 'x'})
+                marker = style.get('marker', 'x')
+                facecolor = style.get('facecolor', 'black')
+                
+                # Only add label for first group
+                label = None
+                if block_key == list(block_groups.keys())[0]:
+                    label = 'Reference (full formula)'
+                
+                ax.scatter(group_data['timepoints'], group_data['times'],
+                          marker=marker, s=60,
+                          facecolor=facecolor if facecolor != 'none' else 'none',
+                          edgecolor='black',
+                          linewidth=2,
+                          label=label,
+                          alpha=0.95,
+                          zorder=11)
+            
+            if has_variance:
+                # Add shaded region for standard deviation
+                step_times_array = np.array(step_times)
+                step_stds_array = np.array(step_stds)
+                ax.fill_between(timepoints, 
+                               step_times_array - step_stds_array, 
+                               step_times_array + step_stds_array,
+                               color='gray', alpha=0.2, zorder=9)
     
     # Calculate average times for summary stats (but don't plot them)
     avg_batch_time = np.mean(batch_times) if batch_times else 0
@@ -148,34 +301,73 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None):
     if reference_timing:
         any_multiple_runs = any_multiple_runs or reference_timing.get('num_runs', 1) > 1
     
-    # Set x-axis labels with timestamps
-    # Get timestamps from reference or first partition
+    # Set x-axis labels with timepoints and timestamps
+    # Get timepoints and timestamps from reference or first partition
     if reference_timing and reference_timing.get('steps'):
-        x_timestamps = {s['step_number']: s['timestamp'] for s in reference_timing['steps']}
+        x_data = {s['timepoint']: s.get('timestamp', s['timepoint']) for s in reference_timing['steps']}
     elif partitions_with_timing:
-        x_timestamps = {s['step_number']: s['timestamp'] for s in partitions_with_timing[0]['step_by_step_timing']['steps']}
+        x_data = {s['timepoint']: s.get('timestamp', s['timepoint']) for s in partitions_with_timing[0]['step_by_step_timing']['steps']}
     else:
-        x_timestamps = {}
+        x_data = {}
     
-    if x_timestamps:
-        # Create tick labels in format "1 (@1)"
-        tick_labels = [f"{step} (@{x_timestamps[step]})" for step in sorted(x_timestamps.keys())]
-        ax.set_xticks(sorted(x_timestamps.keys()))
-        ax.set_xticklabels(tick_labels)
+    if x_data:
+        # Set up x-axis with automatic integer tick spacing
+        ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True, nbins='auto'))
+        
+        # Add secondary x-axis at top showing timestamps
+        ax2 = ax.twiny()
+        
+        # Find positions where timestamp changes (boundaries)
+        sorted_timepoints = sorted(x_data.keys())
+        timestamp_positions = []
+        timestamp_labels = []
+        prev_timestamp = None
+        
+        for tp in sorted_timepoints:
+            curr_timestamp = x_data[tp]
+            if prev_timestamp is None or curr_timestamp != prev_timestamp:
+                timestamp_positions.append(tp)
+                timestamp_labels.append(str(curr_timestamp))
+            prev_timestamp = curr_timestamp
+        
+        # Set up secondary axis with timestamp labels
+        ax2.set_xlim(ax.get_xlim())
+        ax2.set_xticks(timestamp_positions)
+        ax2.set_xticklabels(timestamp_labels, rotation=45, ha='left')
+        ax2.set_xlabel('Timestamp', fontsize=12, fontweight='bold')
     
     # Formatting
-    ax.set_xlabel('Step Number', fontsize=12, fontweight='bold')
+    ax.set_xlabel('Timepoint', fontsize=12, fontweight='bold')
     ax.set_ylabel('Time (proactive+reactive) [seconds]', fontsize=12, fontweight='bold')
     title = 'Step-by-Step Enforcement Timing'
     if reference_timing:
         title += ' (Partitions vs Reference)'
     else:
         title += ' per Partition'
+    if total_outliers_removed > 0:
+        title += f' ({total_outliers_removed} extreme outlier(s) excluded)'
     if any_multiple_runs:
         title += ' (shaded regions show ±1 std dev)'
     ax.set_title(title, fontsize=14, fontweight='bold')
     ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
-    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=9)
+    
+    # Create main legend for partitions
+    main_legend = ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=9, title='Partitions')
+    ax.add_artist(main_legend)
+    
+    # Add marker legend below main legend
+    marker_legend_elements = [
+        Line2D([0], [0], marker='o', color='gray', linestyle='', markersize=8, 
+               label='Reactive + Action', markerfacecolor='gray'),
+        Line2D([0], [0], marker='o', color='gray', linestyle='', markersize=8, 
+               label='Reactive + No Action', markerfacecolor='none', markeredgewidth=1.5),
+        Line2D([0], [0], marker='s', color='gray', linestyle='', markersize=8, 
+               label='Proactive + Action', markerfacecolor='gray'),
+        Line2D([0], [0], marker='s', color='gray', linestyle='', markersize=8, 
+               label='Proactive + No Action', markerfacecolor='none', markeredgewidth=1.5),
+    ]
+    ax.legend(handles=marker_legend_elements, bbox_to_anchor=(1.05, 0.6), 
+             loc='upper left', fontsize=8, title='Block Types', framealpha=0.9)
     
     # Set y-axis to log scale if there's a large range
     step_times_all = [s['step_time_stats']['mean'] for p in partitions_with_timing for s in p['step_by_step_timing']['steps']]

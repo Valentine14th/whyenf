@@ -73,10 +73,11 @@ def plot_complexity_vs_time(json_file: str, mfotl_dir: str, output_file: str = N
         batch_time = partition['time_stats']['mean']
         batch_std = partition['time_stats']['std']
         
-        # Check if step-by-step timing exists and was successful
-        has_step_timing = (partition.get('step_by_step_timing') is not None and 
-                          partition.get('step_by_step_timing', {}).get('status') == 'success')
-        total_time = partition['step_by_step_timing']['total_time_stats']['mean'] if has_step_timing else None
+        # Check if step summary exists and was successful
+        step_summary = partition.get('step_summary')
+        has_step_timing = (step_summary is not None and 
+                          step_summary.get('status') == 'success')
+        total_time = step_summary.get('total_time') if has_step_timing else None
         
         # Find and analyze MFOTL file
         mfotl_path = Path(mfotl_dir) / partition_file

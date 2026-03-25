@@ -39,10 +39,12 @@ FILE_EXT_TMP = '.tmp'
 
 # Plot filenames
 PLOT_STEP_BY_STEP_TIMING = 'step_by_step_timing_plot.png'
-PLOT_COMPLEXITY_VS_TIME = 'complexity_vs_time_plot.png'
 PLOT_PARTITION_DIFFERENCES = 'partition_differences_plot.png'
+PLOT_COMBINED_PARTITION_DIFFERENCES = 'combined_partition_differences_plot.png'
 PLOT_MULTI_LOG_MATCHING_STATUS = 'summary_matching_status.png'
+PLOT_MULTI_LOG_EVENT_DIFFERENCES = 'summary_event_differences.png'
 PLOT_MULTI_LOG_SPEEDUP = 'summary_speedup.png'
+PLOT_MULTI_LOG_EXECUTION_TIME = 'summary_execution_time.png'
 PLOT_MULTI_LOG_COMPLEXITY = 'summary_complexity_vs_time.png'
 
 # Timeouts (seconds)
@@ -588,80 +590,6 @@ def generate_step_by_step_plot(config, logger, workspace_root, script_dir, enfor
         return False
 
 
-def generate_complexity_plot(config, logger, workspace_root, script_dir, enforcement_results_file, partition_dir, plots_dir):
-    """Generate complexity (rules/LETs) vs time plot for partition enforcement.
-    
-    Args:
-        enforcement_results_file: Path to enforcement results JSON
-        partition_dir: Directory containing partition MFOTL files
-        plots_dir: Directory where the plot should be saved
-    """
-    logger.log("Generating complexity vs time plot...")
-    
-    if not os.path.exists(enforcement_results_file):
-        logger.log(f"✗ Enforcement results file not found: {enforcement_results_file}", LOG_LEVEL_ERROR)
-        return False
-    
-    if not os.path.exists(partition_dir):
-        logger.log(f"✗ Partition directory not found: {partition_dir}", LOG_LEVEL_ERROR)
-        return False
-    
-    # Use default plot filename in provided plots directory
-    plot_filename = PLOT_COMPLEXITY_VS_TIME
-    
-    # Create plots subdirectory if it doesn't exist
-    os.makedirs(plots_dir, exist_ok=True)
-    
-    plot_file = os.path.join(plots_dir, plot_filename)
-    
-    # Build command to run plotting script
-    plot_script = os.path.join(script_dir, 'utils', 'plot_complexity_vs_time.py')
-    
-    if not os.path.exists(plot_script):
-        logger.log(f"✗ Plotting script not found: {plot_script}", LOG_LEVEL_ERROR)
-        return False
-    
-    cmd = [
-        sys.executable,
-        plot_script,
-        enforcement_results_file,
-        partition_dir,
-        '-o', plot_file
-    ]
-    
-    logger.log(f"Command: {' '.join(cmd)}")
-    
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_root,
-            timeout=TIMEOUT_PLOT_GENERATION
-        )
-        
-        # Print script output
-        if result.stdout:
-            for line in result.stdout.strip().split('\n'):
-                logger.log(line)
-        
-        if result.returncode == 0:
-            logger.log(f"✓ Plot generated: {plot_file}", LOG_LEVEL_SUCCESS)
-            return True
-        else:
-            logger.log(f"✗ Plot generation failed with exit code {result.returncode}", LOG_LEVEL_ERROR)
-            if result.stderr:
-                logger.log(f"Error output: {result.stderr}", LOG_LEVEL_ERROR)
-            return False
-    
-    except subprocess.TimeoutExpired:
-        logger.log("✗ Plot generation timed out", LOG_LEVEL_ERROR)
-        return False
-    except Exception as e:
-        logger.log(f"✗ Plot generation failed: {e}", LOG_LEVEL_ERROR)
-        return False
-
-
 def generate_diff_statistics_plot(config, logger, workspace_root, script_dir, diff_dir, plots_dir):
     """Generate partition difference statistics plot from diff files.
     
@@ -718,7 +646,8 @@ def generate_diff_statistics_plot(config, logger, workspace_root, script_dir, di
                 logger.log(line)
         
         if result.returncode == 0:
-            logger.log(f"✓ Plot generated: {plot_file}", LOG_LEVEL_SUCCESS)
+            combined_plot_file = os.path.join(plots_dir, PLOT_COMBINED_PARTITION_DIFFERENCES)
+            logger.log(f"✓ Plots generated: {plot_file} and {combined_plot_file}", LOG_LEVEL_SUCCESS)
             return True
         else:
             logger.log(f"✗ Plot generation failed with exit code {result.returncode}", LOG_LEVEL_ERROR)
@@ -798,7 +727,9 @@ def generate_multi_log_summary_plots(config, logger, workspace_root, script_dir,
         if result.returncode == 0:
             logger.log(f"✓ Multi-log summary plots generated:", LOG_LEVEL_SUCCESS)
             logger.log(f"  - {PLOT_MULTI_LOG_MATCHING_STATUS}")
+            logger.log(f"  - {PLOT_MULTI_LOG_EVENT_DIFFERENCES}")
             logger.log(f"  - {PLOT_MULTI_LOG_SPEEDUP}")
+            logger.log(f"  - {PLOT_MULTI_LOG_EXECUTION_TIME}")
             logger.log(f"  - {PLOT_MULTI_LOG_COMPLEXITY}")
             return True
         else:
@@ -985,12 +916,6 @@ def run_workflow(config_file):
                 if not generate_step_by_step_plot(config, logger, workspace_root, script_dir, 
                                                   enforcement_results_file, plots_dir):
                     logger.log("Warning: Failed to generate timing plot, continuing...", LOG_LEVEL_WARNING)
-            
-            # Generate complexity vs time plot
-            if os.path.exists(enforcement_results_file):
-                if not generate_complexity_plot(config, logger, workspace_root, script_dir, 
-                                               enforcement_results_file, partition_dir, plots_dir):
-                    logger.log("Warning: Failed to generate complexity plot, continuing...", LOG_LEVEL_WARNING)
             
             # Generate partition difference statistics plot
             if os.path.exists(diff_dir):

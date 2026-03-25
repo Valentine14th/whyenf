@@ -2,6 +2,9 @@
 """
 Script to plot differences across partitions over time.
 Creates 4 subplots for suppression/causation reactive/proactive differences.
+Generates two visualizations:
+1. All partitions + combined (partition_differences_plot.png)
+2. Combined partition only (combined_partition_differences_plot.png)
 """
 
 import json
@@ -53,22 +56,22 @@ def extract_partition_data(diff_data):
     }
     
     for block in diff_data.get('differing_blocks', []):
-        timestamp = block['timestamp']
+        timepoint = block['timepoint']
         block_type = block['block_type']  # 'reactive' or 'proactive'
         
         (causation_extra, causation_missing), (suppression_extra, suppression_missing) = count_differences(block)
         
         # Categorize by reactive/proactive
         if block_type == 'reactive':
-            data_extra['suppression_reactive'][timestamp] += suppression_extra
-            data_missing['suppression_reactive'][timestamp] += suppression_missing
-            data_extra['causation_reactive'][timestamp] += causation_extra
-            data_missing['causation_reactive'][timestamp] += causation_missing
+            data_extra['suppression_reactive'][timepoint] += suppression_extra
+            data_missing['suppression_reactive'][timepoint] += suppression_missing
+            data_extra['causation_reactive'][timepoint] += causation_extra
+            data_missing['causation_reactive'][timepoint] += causation_missing
         elif block_type == 'proactive':
-            data_extra['suppression_proactive'][timestamp] += suppression_extra
-            data_missing['suppression_proactive'][timestamp] += suppression_missing
-            data_extra['causation_proactive'][timestamp] += causation_extra
-            data_missing['causation_proactive'][timestamp] += causation_missing
+            data_extra['suppression_proactive'][timepoint] += suppression_extra
+            data_missing['suppression_proactive'][timepoint] += suppression_missing
+            data_extra['causation_proactive'][timepoint] += causation_extra
+            data_missing['causation_proactive'][timepoint] += causation_missing
     
     return data_extra, data_missing
 
@@ -112,16 +115,6 @@ def plot_diff_statistics(diff_dir):
         all_data_extra['Combined'] = data_extra
         all_data_missing['Combined'] = data_missing
     
-    # Get all timestamps
-    all_timestamps = set()
-    for data_extra in all_data_extra.values():
-        for category in data_extra.values():
-            all_timestamps.update(category.keys())
-    for data_missing in all_data_missing.values():
-        for category in data_missing.values():
-            all_timestamps.update(category.keys())
-    timestamps = sorted(all_timestamps)
-    
     # Create figure with 4 subplots
     fig, axes = plt.subplots(2, 2, figsize=(16, 12))
     fig.suptitle('Partition Differences Over Time (Separate: +Extra / -Missing)', fontsize=16, fontweight='bold')
@@ -143,14 +136,38 @@ def plot_diff_statistics(diff_dir):
         color_map[combined_name] = plt.cm.Set1(0)  # Different color for combined
     
     for cat_key, cat_title, ax in categories:
-        # Skip if no data
-        if not timestamps:
-            ax.text(0.5, 0.5, 'No data', ha='center', va='center', transform=ax.transAxes)
+        # Get timepoints relevant to this category only
+        category_timepoints = set()
+        for data_extra in all_data_extra.values():
+            category_timepoints.update(data_extra[cat_key].keys())
+        for data_missing in all_data_missing.values():
+            category_timepoints.update(data_missing[cat_key].keys())
+        timepoints = sorted(category_timepoints)
+        
+        # Skip if no differences
+        if not timepoints:
+            ax.text(0.5, 0.5, 'No differences', ha='center', va='center', transform=ax.transAxes, fontsize=12)
+            ax.set_title(cat_title, fontsize=14, fontweight='bold')
+            continue
+        
+        # Check if all values are zero
+        has_nonzero = False
+        for partition_name in list(partition_names) + ([combined_name] if combined_name else []):
+            data_extra = all_data_extra[partition_name]
+            data_missing = all_data_missing[partition_name]
+            values_extra = [data_extra[cat_key].get(t, 0) for t in timepoints]
+            values_missing = [data_missing[cat_key].get(t, 0) for t in timepoints]
+            if any(v != 0 for v in values_extra + values_missing):
+                has_nonzero = True
+                break
+        
+        if not has_nonzero:
+            ax.text(0.5, 0.5, 'No differences', ha='center', va='center', transform=ax.transAxes, fontsize=12)
             ax.set_title(cat_title, fontsize=14, fontweight='bold')
             continue
         
         # Prepare data for grouped bar chart (each partition gets its own bar group)
-        x_positions = np.arange(len(timestamps))
+        x_positions = np.arange(len(timepoints))
         num_partitions = len(partition_names)
         
         # Calculate bar width and positions for grouped bars
@@ -166,8 +183,8 @@ def plot_diff_statistics(diff_dir):
             data_extra = all_data_extra[partition_name]
             data_missing = all_data_missing[partition_name]
             
-            values_extra = [data_extra[cat_key].get(t, 0) for t in timestamps]
-            values_missing = [data_missing[cat_key].get(t, 0) for t in timestamps]
+            values_extra = [data_extra[cat_key].get(t, 0) for t in timepoints]
+            values_missing = [data_missing[cat_key].get(t, 0) for t in timepoints]
             
             # Calculate offset for this partition
             offset = (idx - num_partitions/2 + 0.5) * bar_width
@@ -186,29 +203,14 @@ def plot_diff_statistics(diff_dir):
                                  alpha=0.85,
                                  edgecolor='black',
                                  linewidth=0.5)
-            
-            # Add value labels on non-zero bars
-            for i, (val_extra, val_missing) in enumerate(zip(values_extra, values_missing)):
-                if val_extra > 0:
-                    y_pos = val_extra + 0.3
-                    ax.text(x_positions[i] + offset, y_pos, f'+{int(val_extra)}',
-                           ha='center', va='bottom',
-                           fontsize=7, fontweight='bold',
-                           color=color_map[partition_name])
-                if val_missing < 0:
-                    y_pos = val_missing - 0.3
-                    ax.text(x_positions[i] + offset, y_pos, str(int(val_missing)),
-                           ha='center', va='top',
-                           fontsize=7, fontweight='bold',
-                           color=np.array(color_map[partition_name]) * 0.6)
         
         # Draw bars for combined (if exists)
         if combined_name:
             data_extra = all_data_extra[combined_name]
             data_missing = all_data_missing[combined_name]
             
-            values_extra = [data_extra[cat_key].get(t, 0) for t in timestamps]
-            values_missing = [data_missing[cat_key].get(t, 0) for t in timestamps]
+            values_extra = [data_extra[cat_key].get(t, 0) for t in timepoints]
+            values_missing = [data_missing[cat_key].get(t, 0) for t in timepoints]
             
             offset = (num_partitions - num_partitions/2 + 0.5) * bar_width
             
@@ -226,26 +228,11 @@ def plot_diff_statistics(diff_dir):
                                  edgecolor='black',
                                  linewidth=1.5,
                                  alpha=0.85)
-            
-            # Add value labels on non-zero bars
-            for i, (val_extra, val_missing) in enumerate(zip(values_extra, values_missing)):
-                if val_extra > 0:
-                    y_pos = val_extra + 0.3
-                    ax.text(x_positions[i] + offset, y_pos, f'+{int(val_extra)}',
-                           ha='center', va='bottom',
-                           fontsize=7, fontweight='bold',
-                           color=color_map[combined_name])
-                if val_missing < 0:
-                    y_pos = val_missing - 0.3
-                    ax.text(x_positions[i] + offset, y_pos, str(int(val_missing)),
-                           ha='center', va='top',
-                           fontsize=7, fontweight='bold',
-                           color=np.array(color_map[combined_name]) * 0.6)
         
         # Add horizontal line at y=0
         ax.axhline(y=0, color='black', linestyle='-', linewidth=1.5, alpha=0.7)
         
-        ax.set_xlabel('Timestamp', fontsize=12)
+        ax.set_xlabel('Timepoint', fontsize=12)
         ax.set_ylabel('Differences\n(+Extra / -Missing)', fontsize=12)
         ax.set_title(cat_title, fontsize=14, fontweight='bold')
         ax.grid(True, alpha=0.3, axis='y')
@@ -258,9 +245,9 @@ def plot_diff_statistics(diff_dir):
         # Set integer ticks on y-axis
         ax.yaxis.set_major_locator(plt.MaxNLocator(integer=True))
         
-        # Set x-axis to show all timestamps
+        # Set x-axis to show all timepoints
         ax.set_xticks(x_positions)
-        ax.set_xticklabels(timestamps)
+        ax.set_xticklabels(timepoints)
     
     plt.tight_layout()
     
@@ -275,6 +262,110 @@ def plot_diff_statistics(diff_dir):
     
     plt.close()  # Close instead of show to avoid GUI issues
 
+def plot_combined_diff_statistics(diff_dir):
+    """Plot difference statistics for combined partition only."""
+    diff_dir = Path(diff_dir)
+    
+    # Load combined data
+    combined_file = diff_dir / 'combined_partitions_diff.json'
+    
+    if not combined_file.exists():
+        print("Combined partition diff file not found, skipping combined plot.")
+        return
+    
+    combined_data = load_diff_file(combined_file)
+    data_extra, data_missing = extract_partition_data(combined_data)
+    
+    # Create figure with 4 subplots
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    fig.suptitle('Combined Partition Differences Over Time (+Extra / -Missing)', fontsize=16, fontweight='bold')
+    
+    categories = [
+        ('suppression_reactive', 'Suppression - Reactive', axes[0, 0]),
+        ('suppression_proactive', 'Suppression - Proactive', axes[0, 1]),
+        ('causation_reactive', 'Causation - Reactive', axes[1, 0]),
+        ('causation_proactive', 'Causation - Proactive', axes[1, 1])
+    ]
+    
+    # Color for combined
+    combined_color = plt.cm.Set1(0)
+    
+    for cat_key, cat_title, ax in categories:
+        # Get timepoints relevant to this category only
+        category_timepoints = set()
+        category_timepoints.update(data_extra[cat_key].keys())
+        category_timepoints.update(data_missing[cat_key].keys())
+        timepoints = sorted(category_timepoints)
+        
+        # Skip if no differences
+        if not timepoints:
+            ax.text(0.5, 0.5, 'No differences', ha='center', va='center', transform=ax.transAxes, fontsize=12)
+            ax.set_title(cat_title, fontsize=14, fontweight='bold')
+            continue
+        
+        # Prepare data for bar chart
+        x_positions = np.arange(len(timepoints))
+        
+        values_extra = [data_extra[cat_key].get(t, 0) for t in timepoints]
+        values_missing = [data_missing[cat_key].get(t, 0) for t in timepoints]
+        
+        # Check if all values are zero
+        if all(v == 0 for v in values_extra + values_missing):
+            ax.text(0.5, 0.5, 'No differences', ha='center', va='center', transform=ax.transAxes, fontsize=12)
+            ax.set_title(cat_title, fontsize=14, fontweight='bold')
+            continue
+        
+        bar_width = 0.6
+        
+        # Draw extra bars (positive, going up)
+        bars_extra = ax.bar(x_positions, values_extra, bar_width,
+                           label='Extra in Combined',
+                           color=combined_color,
+                           alpha=0.85,
+                           edgecolor='black',
+                           linewidth=1.5)
+        
+        # Draw missing bars (negative, going down)
+        bars_missing = ax.bar(x_positions, values_missing, bar_width,
+                             label='Missing in Combined',
+                             color=np.array(combined_color) * 0.6,  # Darker shade
+                             alpha=0.85,
+                             edgecolor='black',
+                             linewidth=1.5)
+        
+        # Add horizontal line at y=0
+        ax.axhline(y=0, color='black', linestyle='-', linewidth=1.5, alpha=0.7)
+        
+        ax.set_xlabel('Timepoint', fontsize=12)
+        ax.set_ylabel('Differences\n(+Extra / -Missing)', fontsize=12)
+        ax.set_title(cat_title, fontsize=14, fontweight='bold')
+        ax.grid(True, alpha=0.3, axis='y')
+        
+        # Only show legend if there's data
+        handles, labels = ax.get_legend_handles_labels()
+        if handles:
+            ax.legend(loc='best', fontsize=10)
+        
+        # Set integer ticks on y-axis
+        ax.yaxis.set_major_locator(plt.MaxNLocator(integer=True))
+        
+        # Set x-axis to show all timepoints
+        ax.set_xticks(x_positions)
+        ax.set_xticklabels(timepoints)
+    
+    plt.tight_layout()
+    
+    # Create plots directory at same level as diff directory
+    plots_dir = diff_dir.parent.parent / 'plots'
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Save figure
+    output_path = plots_dir / 'combined_partition_differences_plot.png'
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    print(f"Combined plot saved to: {output_path}")
+    
+    plt.close()  # Close instead of show to avoid GUI issues
+
 if __name__ == '__main__':
     import sys
     
@@ -284,3 +375,4 @@ if __name__ == '__main__':
         diff_dir = 'tests/partition/results/minitwit_full_output/partition_outputs/diff'
     
     plot_diff_statistics(diff_dir)
+    plot_combined_diff_statistics(diff_dir)
