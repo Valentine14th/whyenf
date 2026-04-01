@@ -135,6 +135,18 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
     print(f"Plotting timing for {len(partitions_with_timing)} partitions" + 
           (f" + reference" if reference_timing else ""))
     
+    # Determine total timepoints to decide whether to suppress per-point markers
+    max_timepoints = max(
+        (len(p['step_by_step_timing']['steps']) for p in partitions_with_timing),
+        default=0
+    )
+    if reference_timing and reference_timing.get('steps'):
+        max_timepoints = max(max_timepoints, len(reference_timing['steps']))
+    MARKER_THRESHOLD = 50
+    many_timepoints = max_timepoints > MARKER_THRESHOLD
+    if many_timepoints:
+        print(f"  Many timepoints ({max_timepoints} > {MARKER_THRESHOLD}): block-type markers suppressed")
+    
     # Create figure
     fig, ax = plt.subplots(figsize=(14, 8))
     
@@ -219,41 +231,70 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
         num_runs = partition['step_by_step_timing'].get('num_runs', 1)
         has_variance = num_runs > 1 and any(std > 0 for std in step_stds)
         
-        # Plot connecting line first (without markers)
-        ax.plot(timepoints, step_times, 
-                linewidth=1.5, 
-                color=colors[idx],
-                alpha=0.8,
-                zorder=1)
-        
-        # Plot points with different markers based on block type
-        for block_key, group_data in block_groups.items():
-            style = marker_styles.get(block_key, {'marker': 'x'})
-            marker = style.get('marker', 'x')
-            facecolor = style.get('facecolor', colors[idx])
+        if not many_timepoints:
+            # Plot single connecting line
+            ax.plot(timepoints, step_times,
+                    linewidth=1.5,
+                    color=colors[idx],
+                    alpha=0.8,
+                    zorder=1)
             
-            # Only add label for first group to avoid legend clutter
-            label = None
-            if block_key == list(block_groups.keys())[0]:
-                label = partition_name
+            # Plot points with different markers based on block type
+            for block_key, group_data in block_groups.items():
+                style = marker_styles.get(block_key, {'marker': 'x'})
+                marker = style.get('marker', 'x')
+                facecolor = style.get('facecolor', colors[idx])
+                
+                # Only add label for first group to avoid legend clutter
+                label = None
+                if block_key == list(block_groups.keys())[0]:
+                    label = partition_name
+                
+                ax.scatter(group_data['timepoints'], group_data['times'],
+                          marker=marker, s=40,
+                          facecolor=facecolor,
+                          edgecolor=colors[idx],
+                          linewidth=1.5,
+                          label=label,
+                          alpha=0.9,
+                          zorder=2)
             
-            ax.scatter(group_data['timepoints'], group_data['times'],
-                      marker=marker, s=40,
-                      facecolor=facecolor if facecolor != 'none' else 'none',
-                      edgecolor=colors[idx],
-                      linewidth=1.5,
-                      label=label,
-                      alpha=0.9,
-                      zorder=2)
-        
-        if has_variance:
-            # Add shaded region for standard deviation
-            step_times_array = np.array(step_times)
-            step_stds_array = np.array(step_stds)
-            ax.fill_between(timepoints, 
-                           step_times_array - step_stds_array, 
-                           step_times_array + step_stds_array,
-                           color=colors[idx], alpha=0.2, zorder=0)
+            if has_variance:
+                step_times_array = np.array(step_times)
+                step_stds_array = np.array(step_stds)
+                ax.fill_between(timepoints,
+                               step_times_array - step_stds_array,
+                               step_times_array + step_stds_array,
+                               color=colors[idx], alpha=0.2, zorder=0)
+        else:
+            # Split into separate lines per block type (reactive=solid, proactive=dotted)
+            type_groups = {}
+            for s in steps:
+                bt = s.get('block_type', 'unknown')
+                if bt not in type_groups:
+                    type_groups[bt] = {'timepoints': [], 'times': [], 'stds': []}
+                type_groups[bt]['timepoints'].append(s['timepoint'])
+                type_groups[bt]['times'].append(s['step_time_stats']['mean'])
+                type_groups[bt]['stds'].append(s['step_time_stats']['std'])
+            
+            type_linestyles = {'reactive': '-', 'proactive': ':'}
+            for bt in sorted(type_groups.keys()):
+                grp = type_groups[bt]
+                ls = type_linestyles.get(bt, '--')
+                ax.plot(grp['timepoints'], grp['times'],
+                        linewidth=1.5,
+                        color=colors[idx],
+                        alpha=0.8,
+                        linestyle=ls,
+                        label=f"{partition_name} ({bt})",
+                        zorder=1)
+                if has_variance:
+                    times_arr = np.array(grp['times'])
+                    stds_arr = np.array(grp['stds'])
+                    ax.fill_between(grp['timepoints'],
+                                   times_arr - stds_arr,
+                                   times_arr + stds_arr,
+                                   color=colors[idx], alpha=0.2, zorder=0)
     
     # Plot reference timing if available
     if reference_timing and reference_timing.get('steps'):
@@ -300,42 +341,70 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
             num_runs = reference_timing.get('num_runs', 1)
             has_variance = num_runs > 1 and any(std > 0 for std in step_stds)
             
-            # Plot connecting line with distinct style (black dashed line, thicker)
-            ax.plot(timepoints, step_times, 
-                    linewidth=2.5, 
-                    linestyle='--',  # Dashed line
-                    color='black',
-                    alpha=0.9,
-                    zorder=10)
-            
-            # Plot points with different markers based on block type
-            for block_key, group_data in block_groups.items():
-                style = marker_styles.get(block_key, {'marker': 'x'})
-                marker = style.get('marker', 'x')
-                facecolor = style.get('facecolor', 'black')
+            if not many_timepoints:
+                # Plot single connecting line (black dashed)
+                ax.plot(timepoints, step_times,
+                        linewidth=1.5,
+                        linestyle='--',
+                        color='black',
+                        alpha=0.7,
+                        zorder=10)
                 
-                # Only add label for first group
-                label = None
-                if block_key == list(block_groups.keys())[0]:
-                    label = 'Reference (full formula)'
+                # Plot points with different markers based on block type
+                for block_key, group_data in block_groups.items():
+                    style = marker_styles.get(block_key, {'marker': 'x'})
+                    marker = style.get('marker', 'x')
+                    facecolor = style.get('facecolor', 'black')
+                    
+                    label = None
+                    if block_key == list(block_groups.keys())[0]:
+                        label = 'Reference (full formula)'
+                    
+                    ax.scatter(group_data['timepoints'], group_data['times'],
+                              marker=marker, s=40,
+                              facecolor=facecolor,
+                              edgecolor='black',
+                              linewidth=1.5,
+                              label=label,
+                              alpha=0.8,
+                              zorder=11)
                 
-                ax.scatter(group_data['timepoints'], group_data['times'],
-                          marker=marker, s=60,
-                          facecolor=facecolor if facecolor != 'none' else 'none',
-                          edgecolor='black',
-                          linewidth=2,
-                          label=label,
-                          alpha=0.95,
-                          zorder=11)
-            
-            if has_variance:
-                # Add shaded region for standard deviation
-                step_times_array = np.array(step_times)
-                step_stds_array = np.array(step_stds)
-                ax.fill_between(timepoints, 
-                               step_times_array - step_stds_array, 
-                               step_times_array + step_stds_array,
-                               color='gray', alpha=0.2, zorder=9)
+                if has_variance:
+                    step_times_array = np.array(step_times)
+                    step_stds_array = np.array(step_stds)
+                    ax.fill_between(timepoints,
+                                   step_times_array - step_stds_array,
+                                   step_times_array + step_stds_array,
+                                   color='gray', alpha=0.2, zorder=9)
+            else:
+                # Split into separate lines per block type
+                ref_type_groups = {}
+                for s in steps:
+                    bt = s.get('block_type', 'unknown')
+                    if bt not in ref_type_groups:
+                        ref_type_groups[bt] = {'timepoints': [], 'times': [], 'stds': []}
+                    ref_type_groups[bt]['timepoints'].append(s['timepoint'])
+                    ref_type_groups[bt]['times'].append(s['step_time_stats']['mean'])
+                    ref_type_groups[bt]['stds'].append(s['step_time_stats']['std'])
+                
+                ref_type_linestyles = {'reactive': '--', 'proactive': ':'}
+                for bt in sorted(ref_type_groups.keys()):
+                    grp = ref_type_groups[bt]
+                    ls = ref_type_linestyles.get(bt, '-.')
+                    ax.plot(grp['timepoints'], grp['times'],
+                            linewidth=1.5,
+                            linestyle=ls,
+                            color='black',
+                            alpha=0.7,
+                            label=f"Reference ({bt})",
+                            zorder=10)
+                    if has_variance:
+                        times_arr = np.array(grp['times'])
+                        stds_arr = np.array(grp['stds'])
+                        ax.fill_between(grp['timepoints'],
+                                       times_arr - stds_arr,
+                                       times_arr + stds_arr,
+                                       color='gray', alpha=0.2, zorder=9)
     
     # Calculate average times for summary stats (but don't plot them)
     avg_batch_time = np.mean(batch_times) if batch_times else 0
@@ -412,19 +481,27 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
     main_legend = ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=9, title='Partitions')
     ax.add_artist(main_legend)
     
-    # Add marker legend below main legend
-    marker_legend_elements = [
-        Line2D([0], [0], marker='o', color='gray', linestyle='', markersize=8, 
-               label='Reactive + Action', markerfacecolor='gray'),
-        Line2D([0], [0], marker='o', color='gray', linestyle='', markersize=8, 
-               label='Reactive + No Action', markerfacecolor='none', markeredgewidth=1.5),
-        Line2D([0], [0], marker='s', color='gray', linestyle='', markersize=8, 
-               label='Proactive + Action', markerfacecolor='gray'),
-        Line2D([0], [0], marker='s', color='gray', linestyle='', markersize=8, 
-               label='Proactive + No Action', markerfacecolor='none', markeredgewidth=1.5),
-    ]
-    ax.legend(handles=marker_legend_elements, bbox_to_anchor=(1.05, 0.6), 
-             loc='upper left', fontsize=8, title='Block Types', framealpha=0.9)
+    # Add block type legend below main legend
+    if many_timepoints:
+        block_type_legend_elements = [
+            Line2D([0], [0], color='gray', linestyle='-', linewidth=1.5, label='Reactive'),
+            Line2D([0], [0], color='gray', linestyle=':', linewidth=1.5, label='Proactive'),
+        ]
+        block_type_legend_title = 'Block Types (line style)'
+    else:
+        block_type_legend_elements = [
+            Line2D([0], [0], marker='o', color='gray', linestyle='', markersize=8,
+                   label='Reactive + Action', markerfacecolor='gray'),
+            Line2D([0], [0], marker='o', color='gray', linestyle='', markersize=8,
+                   label='Reactive + No Action', markerfacecolor='none', markeredgewidth=1.5),
+            Line2D([0], [0], marker='s', color='gray', linestyle='', markersize=8,
+                   label='Proactive + Action', markerfacecolor='gray'),
+            Line2D([0], [0], marker='s', color='gray', linestyle='', markersize=8,
+                   label='Proactive + No Action', markerfacecolor='none', markeredgewidth=1.5),
+        ]
+        block_type_legend_title = 'Block Types'
+    ax.legend(handles=block_type_legend_elements, bbox_to_anchor=(1.05, 0.6),
+             loc='upper left', fontsize=8, title=block_type_legend_title, framealpha=0.9)
     
     # Set y-axis to log scale if there's a large range
     step_times_all = [s['step_time_stats']['mean'] for p in partitions_with_timing for s in p['step_by_step_timing']['steps']]
