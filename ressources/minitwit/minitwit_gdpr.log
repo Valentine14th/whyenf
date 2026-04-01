@@ -3,11 +3,6 @@
 @3 Read(1,1,1,"service",1) Collect(1,1,1,"service") PersonalData(1,1) IsCompatibleWithPurpose(1,"service");
 @4 Read(1,1,1,"service",1) Collect(1,1,1,"service") PersonalData(1,1) IsCompatibleWithPurpose(1,"service");
 @5 Read(1,1,1,"service",1) Collect(1,1,1,"service") PersonalData(1,1) IsCompatibleWithPurpose(1,"service");
-@6 Read(1,1,1,"service",1) Collect(1,1,1,"service") PersonalData(1,1) IsCompatibleWithPurpose(1,"service");
-@7 Read(1,1,1,"service",1) Collect(1,1,1,"service") PersonalData(1,1) IsCompatibleWithPurpose(1,"service");
-@8 Read(1,1,1,"service",1) Collect(1,1,1,"service") PersonalData(1,1) IsCompatibleWithPurpose(1,"service");
-@9 Read(1,1,1,"service",1) Collect(1,1,1,"service") PersonalData(1,1) IsCompatibleWithPurpose(1,"service");
-@10 Read(1,1,1,"service",1) Collect(1,1,1,"service") PersonalData(1,1) IsCompatibleWithPurpose(1,"service");
-@11 Read(1,1,1,"personalized_ad",1) Collect(1,1,1,"personalized_ad") PersonalData(1,1) Consent(1,"personalized_ad");
-@11 Read(1,1,1,"personalized_ad",1) Collect(1,1,1,"personalized_ad") PersonalData(1,1) Consent(1,"personalized_ad");
+@6 Read(1,1,1,"personalized_ad",1) Collect(1,1,1,"personalized_ad") PersonalData(1,1) Consent(1,"personalized_ad");
+@7 Read(1,1,1,"personalized_ad",1) Collect(1,1,1,"personalized_ad") PersonalData(1,1) Consent(1,"personalized_ad");
 

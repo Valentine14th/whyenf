@@ -1436,7 +1436,7 @@ rule
         DataProcessing(pr, c, a, d)
         PersonalData(d, ds)
         HasPurpose(a, p)
-        NOT ONCE (EXISTS co, pr'. DataProcessing(pr', c, co, d) AND IsCollection(co, ds) AND HasPurpose(co, p))
+        ONCE (EXISTS co, pr'. DataProcessing(pr', c, co, d) AND IsCollection(co, ds) AND NOT HasPurpose(co, p))
     oblige
         ONCE (EXISTS de, re. Inform(c, ds, de) AND Contains(de, re) AND IsNewPurpose(re, p))
     transparently enforceable causing effects
@@ -2115,7 +2115,7 @@ rule
         IsObligedToDelete(c, d)
         ONCE Share(c, e, d)
     oblige
-        NOT UndueDataDelay(d) UNTIL (EXISTS e. NotifyOfErasure(c, e, d))
+        NOT UndueDataDelay(d) UNTIL (NotifyOfErasure(c, e, d))
     transparently enforceable causing effects
 
 paragraph "3"

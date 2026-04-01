@@ -1,17 +1,17 @@
 # Workflow name (used for logging/output identification)
-name: "minitwit_comprehensive_logs"
+name: "test"
 
 # Input files
 input:
-  mfotl: "ressources/minitwit/minitwit_gdpr.mfotl"
+  mfotl: "ressources/minitwit/minitwit_gdpr_rex_problem.mfotl"
   signature: "ressources/minitwit/minitwit_gdpr.sig"
   
   # Option 1: Run on specific logs (explicit list)
   logs:
-  #  - "ressources/minitwit/test_logs/minitwit_compliant.log"
+    - "ressources/minitwit/minitwit_gdpr.log"
     # - "ressources/minitwit/minitwit_gdpr.log"
-    # - "ressources/minitwit/test_logs/minitwit_access_request.log"
-  log_directory: "ressources/minitwit/test_logs/comprehensive/"  
+    #- "ressources/minitwit/test_logs/minitwit_access_request.log"
+  #log_directory: "ressources/minitwit/test_logs/"  
   
   # Option 2: Process all log files in a directory
   # log_directory: "ressources/minitwit/test_logs/"
@@ -33,7 +33,7 @@ visualization:
 # Partition execution options (running enfguard on each partition)
 partition_execution:
   enabled: true
-  timeout: 3000 
-  label: true
-  step_by_step: false  # When true, ingest log file one timestamp at a time and measure enforcement time per step
-  repeat_runs: 1  # Number of times to run each partition for timing measurements (default: 1). When > 1, only timing is recorded.
+  timeout: 300 
+  label: false
+  step_by_step: true  # When true, ingest log file one timestamp at a time and measure enforcement time per step
+  repeat_runs: 2  # Number of times to run each partition for timing measurements (default: 1). When > 1, only timing is recorded.

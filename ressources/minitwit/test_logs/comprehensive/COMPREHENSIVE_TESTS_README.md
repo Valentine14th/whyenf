@@ -233,7 +233,7 @@ python validate_test_labels.py --results-dir output --json-output validation_rep
 ```
 
 The validation script will:
-- Check each test's result file in `output/log_{test_name}/result.json`
+- Check each test's result file in `output/log_{test_name}/output_reference.txt`
 - Extract all `[Enforcer:Label]` entries from the results
 - Verify that the expected label(s) appear in the results
 - Report:

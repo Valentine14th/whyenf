@@ -32,7 +32,13 @@ docs/*/*.out
 docs/*/*.pdf
 docs/*/*/*.el
 *.secret
-ressources/
+ressources/gdpr/old_gdpr
+ressources/minitwit/old_minitwit
+ressources/minitwit/test_logs
+ressources/minitwit/long_tests
+ressources/minitwit/error_logs
+ressources/francois
 viz/lib/
 partition_output/
 tests/partition/results
+.envrc
