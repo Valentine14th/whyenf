@@ -787,10 +787,17 @@ def load_enforcement_summary(enforcement_results_file, logger):
 # MAIN WORKFLOW ORCHESTRATOR
 # =============================================================================
 
-def run_workflow(config_file):
+def run_workflow(config_file, output_name):
     """Execute the complete workflow based on config."""
     # Load configuration
     config = load_config(config_file)
+    
+    # Override output directory with the name provided on the command line
+    config['output']['directory'] = os.path.join(DEFAULT_OUTPUT_BASE, output_name)
+    if config['partition_execution'].get('enabled'):
+        config['partition_execution']['partition_dir'] = os.path.join(
+            config['output']['directory'], DIR_MFOTL
+        )
     
     # Get workspace root (assumes script is in tests/partition/)
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -801,12 +808,13 @@ def run_workflow(config_file):
     if not os.path.isabs(output_dir):
         output_dir = os.path.join(workspace_root, output_dir)
     
-    # Clear output directory if it already exists (start fresh)
+    # Refuse to overwrite an existing output directory
     if os.path.exists(output_dir):
-        print(f"Clearing existing output directory: {output_dir}")
-        shutil.rmtree(output_dir)
+        print(f"Error: output directory already exists: {output_dir}")
+        print("Choose a different name or remove the directory manually.")
+        return 1
     
-    # Create output directory fresh
+    # Create output directory
     os.makedirs(output_dir, exist_ok=True)
     
     # Setup logger (always enabled with fixed filename)
@@ -988,6 +996,7 @@ Example usage:
         """
     )
     parser.add_argument('config', help='Path to YAML configuration file')
+    parser.add_argument('output_name', help='Name for the output directory inside tests/partition/results/')
     
     args = parser.parse_args()
     
@@ -995,4 +1004,4 @@ Example usage:
         print(f"Error: Config file not found: {args.config}")
         sys.exit(1)
     
-    sys.exit(run_workflow(args.config))
+    sys.exit(run_workflow(args.config, args.output_name))
