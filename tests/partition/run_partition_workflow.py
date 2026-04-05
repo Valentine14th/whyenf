@@ -358,6 +358,9 @@ def run_visualization(config, logger, workspace_root, json_file):
     if config['input'].get('mfotl'):
         cmd.extend(['--mfotl', config['input']['mfotl']])
     
+    if config['input'].get('signature'):
+        cmd.extend(['--sig', config['input']['signature']])
+    
     logger.log(f"Command: {' '.join(cmd)}")
     logger.log("")  # Empty line before output
     

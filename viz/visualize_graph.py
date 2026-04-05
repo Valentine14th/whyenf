@@ -26,7 +26,7 @@ from utils.html import (
 from utils.mfotl_parser import generate_partition_mfotl_files
 
 
-def create_graph(json_file, output_file, filter_polarity=False, merge_strategy=None, mfotl_file=None, output_dir='partition_output', max_merge_size=None):
+def create_graph(json_file, output_file, filter_polarity=False, merge_strategy=None, mfotl_file=None, sig_file=None, output_dir='partition_output', max_merge_size=None):
     """Create PyVis graph from formula JSON showing causality rules.
     
     Args:
@@ -133,7 +133,7 @@ def create_graph(json_file, output_file, filter_polarity=False, merge_strategy=N
     # Generate minimal MFOTL files for each partition if MFOTL file is provided
     if mfotl_file:
         base_name = os.path.splitext(os.path.basename(mfotl_file))[0]
-        generate_partition_mfotl_files(mfotl_file, partitions, partition_labels, rules, output_dir, base_name)
+        generate_partition_mfotl_files(mfotl_file, partitions, partition_labels, rules, output_dir, base_name, sig_file=sig_file)
     
     return full_output_path
 
@@ -148,6 +148,8 @@ if __name__ == "__main__":
     parser.add_argument('--output-dir', type=str, default='partition_output',
                        help='Output directory for all generated files (default: partition_output)')
     parser.add_argument('--mfotl', type=str, help='Path to MFOTL file for generating partition files')
+    parser.add_argument('--sig', type=str, default=None,
+                       help='Path to sig file; when provided, a matching minimal sig is written alongside each partition MFOTL')
     parser.add_argument('--filter-polarity', action='store_true',
                        help='Filter out polarity edges (CauByCau+monotonic, CauBySup+antimonotonic)')
     parser.add_argument('--merge-strategy', type=str, required=True,
@@ -167,5 +169,6 @@ if __name__ == "__main__":
                 filter_polarity=args.filter_polarity,
                 merge_strategy=args.merge_strategy,
                 mfotl_file=args.mfotl,
+                sig_file=args.sig,
                 output_dir=args.output_dir,
                 max_merge_size=args.max_merge_size)

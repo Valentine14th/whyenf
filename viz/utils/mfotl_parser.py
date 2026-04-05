@@ -195,8 +195,48 @@ def create_minimal_mfotl(let_definitions, let_order, rules):
     return '\n'.join(lines)
 
 
-def generate_partition_mfotl_files(mfotl_file, partitions, partition_labels, rules, output_dir, base_name):
-    """Generate minimal MFOTL files for each partition.
+def generate_partition_sig_file(mfotl_content, sig_file, output_path):
+    """Generate a minimal sig file containing only the declarations used in a partition.
+
+    Parses the original sig file and keeps only the lines whose predicate/function
+    name is actually referenced in the partition MFOTL text.  LET-defined names
+    are defined inside the MFOTL itself, so they are never in the sig — we only
+    need the primitives.
+
+    Args:
+        mfotl_content: Full text of the partition MFOTL file
+        sig_file: Path to the original (full) sig file
+        output_path: Path where the minimal sig file should be written
+    """
+    with open(sig_file, 'r') as f:
+        sig_lines = f.readlines()
+
+    kept = []
+    for line in sig_lines:
+        stripped = line.strip()
+        if not stripped:
+            kept.append(line)
+            continue
+        # Extract the predicate / function name.
+        # fun declarations: "fun name(...) : type"  — skip the "fun" keyword
+        if stripped.startswith('fun '):
+            name_match = re.match(r'fun\s+([A-Za-z_][A-Za-z0-9_]*)', stripped)
+        else:
+            name_match = re.match(r'([A-Za-z_][A-Za-z0-9_]*)', stripped)
+        if not name_match:
+            kept.append(line)
+            continue
+        name = name_match.group(1)
+        # Keep the line if the name appears as a whole word in the MFOTL text
+        if re.search(r'\b' + re.escape(name) + r'\b', mfotl_content):
+            kept.append(line)
+
+    with open(output_path, 'w') as f:
+        f.writelines(kept)
+
+
+def generate_partition_mfotl_files(mfotl_file, partitions, partition_labels, rules, output_dir, base_name, sig_file=None):
+    """Generate minimal MFOTL files (and optional matching sig files) for each partition.
     
     Args:
         mfotl_file: Path to the original MFOTL file
@@ -205,6 +245,8 @@ def generate_partition_mfotl_files(mfotl_file, partitions, partition_labels, rul
         rules: List of rules from JSON
         output_dir: Directory where partition files will be saved
         base_name: Base name for the MFOTL partition files
+        sig_file: Optional path to the original sig file.  When provided, a
+                  matching minimal sig file is written alongside each .mfotl file.
     """
     print(f"\nGenerating partition MFOTL files from {mfotl_file}...")
     
@@ -221,6 +263,8 @@ def generate_partition_mfotl_files(mfotl_file, partitions, partition_labels, rul
     # Create mfotl subdirectory inside output directory
     mfotl_output_dir = os.path.join(output_dir, 'mfotl')
     os.makedirs(mfotl_output_dir, exist_ok=True)
+    sig_output_dir = os.path.join(mfotl_output_dir, 'signatures')
+    os.makedirs(sig_output_dir, exist_ok=True)
     
     # For each partition, generate a minimal MFOTL file
     for partition_idx, node_ids in partitions.items():
@@ -268,5 +312,11 @@ def generate_partition_mfotl_files(mfotl_file, partitions, partition_labels, rul
         
         with open(output_path, 'w') as f:
             f.write(mfotl_content)
+        
+        # Generate matching minimal sig file if a sig was provided
+        if sig_file:
+            sig_basename = os.path.splitext(os.path.basename(output_path))[0] + '.sig'
+            sig_output_path = os.path.join(sig_output_dir, sig_basename)
+            generate_partition_sig_file(mfotl_content, sig_file, sig_output_path)
         
         print(f"  Partition {partition_idx} ({partition_label}): {len(partition_mfotl_rules)} rules, {len(referenced_lets)} LETs")
