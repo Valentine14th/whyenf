@@ -224,7 +224,6 @@ def plot_matching_and_failures(summary_data: dict, results_dir: Path = None, out
     
     if output_file:
         plt.savefig(output_file, dpi=300, bbox_inches='tight')
-        print(f"Plot 1 saved to: {output_file}")
     else:
         plt.show()
     
@@ -297,7 +296,6 @@ def plot_event_type_differences(extra_event_types: dict, missing_event_types: di
     
     if output_file:
         plt.savefig(output_file, dpi=300, bbox_inches='tight')
-        print(f"Event type differences plot saved to: {output_file}")
     else:
         plt.show()
     
@@ -500,7 +498,6 @@ def plot_speedup_comparison(summary_data: dict, results_dir: Path = None, output
     
     if output_file:
         plt.savefig(output_file, dpi=300, bbox_inches='tight')
-        print(f"Speedup plot saved to: {output_file}")
     else:
         plt.show()
     
@@ -678,7 +675,6 @@ def plot_execution_time_comparison(summary_data: dict, results_dir: Path = None,
     
     if output_file:
         plt.savefig(output_file, dpi=300, bbox_inches='tight')
-        print(f"Execution time plot saved to: {output_file}")
     else:
         plt.show()
     
@@ -690,9 +686,9 @@ def plot_execution_time_comparison(summary_data: dict, results_dir: Path = None,
         for i, log_name in enumerate(log_names):
             if accumulated_worst_case_times[i] is not None:
                 print(f"{log_name}:")
-                print(f"  Slowest partition: {slowest_times[i]:.2f}s")
-                print(f"  Accumulated worst-case: {accumulated_worst_case_times[i]:.2f}s")
-                print(f"  Reference: {reference_times[i]:.2f}s")
+                print(f"  Slowest partition: {slowest_times[i]:.6f}s")
+                print(f"  Accumulated worst-case: {accumulated_worst_case_times[i]:.6f}s")
+                print(f"  Reference: {reference_times[i]:.6f}s")
                 ratio = accumulated_worst_case_times[i] / slowest_times[i]
                 print(f"  Ratio (accumulated/slowest): {ratio:.2f}x")
                 
@@ -868,7 +864,6 @@ def plot_complexity_vs_time_all_logs(summary_data: dict, results_dir: Path,
     
     if output_file:
         plt.savefig(output_file, dpi=300, bbox_inches='tight')
-        print(f"Plot 3 saved to: {output_file}")
     else:
         plt.show()
     

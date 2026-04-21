@@ -166,6 +166,10 @@ def load_config(config_file):
     if config['partition_execution'].get('repeat_runs') is None:
         config['partition_execution']['repeat_runs'] = 1
     
+    # Set default for enfguard binary (relative to workspace root)
+    if config.get('enfguard_binary') is None:
+        config['enfguard_binary'] = 'enfguard'
+    
     # Auto-set partition directory if not specified
     if config['partition_execution'].get('enabled'):
         if config['partition_execution'].get('partition_dir') is None:
@@ -202,7 +206,9 @@ def generate_json(config, logger, workspace_root):
     )
     
     # Build enfguard command
-    enfguard_binary = os.path.join(workspace_root, 'enfguard')
+    enfguard_binary = config['enfguard_binary']
+    if not os.path.isabs(enfguard_binary):
+        enfguard_binary = os.path.join(workspace_root, enfguard_binary)
     
     cmd = [
         enfguard_binary,
@@ -212,8 +218,6 @@ def generate_json(config, logger, workspace_root):
         '-json',
         '-label'
     ]
-    
-    logger.log(f"Command: {' '.join(cmd)}")
     
     try:
         # Run command and capture output to save as JSON
@@ -229,7 +233,6 @@ def generate_json(config, logger, workspace_root):
         with open(json_file, 'w') as f:
             f.write(result.stdout)
         
-        logger.log(f"JSON saved to: {json_file}")
         return json_file
         
     except subprocess.CalledProcessError as e:
@@ -264,7 +267,9 @@ def generate_normalized_mfotl(config, logger, workspace_root, script_dir):
     temp_file = normalized_file + FILE_EXT_TMP
     
     # Build enfguard command (same as JSON generation but without -json flag)
-    enfguard_binary = os.path.join(workspace_root, 'enfguard')
+    enfguard_binary = config['enfguard_binary']
+    if not os.path.isabs(enfguard_binary):
+        enfguard_binary = os.path.join(workspace_root, enfguard_binary)
     
     cmd = [
         enfguard_binary,
@@ -273,8 +278,6 @@ def generate_normalized_mfotl(config, logger, workspace_root, script_dir):
         '-print-normal-form',
         '-label'
     ]
-    
-    logger.log(f"Command: {' '.join(cmd)}")
     
     try:
         # Run command and capture output to save as normalized MFOTL
@@ -307,7 +310,6 @@ def generate_normalized_mfotl(config, logger, workspace_root, script_dir):
         # Clean up temp file
         os.remove(temp_file)
         
-        logger.log(f"Normalized MFOTL saved to: {normalized_file}")
         return normalized_file
         
     except subprocess.CalledProcessError as e:
@@ -318,83 +320,136 @@ def generate_normalized_mfotl(config, logger, workspace_root, script_dir):
         if os.path.exists(temp_file):
             os.remove(temp_file)
         return None
+    
+def copy_partition_files(config, logger, workspace_root):
+    """Copy pre-generated partition files to the expected partition directory.
 
+    This is used when visualization is disabled but partition execution is enabled.
+    The partition files must already exist in a source directory.
 
-# =============================================================================
-# VISUALIZATION FUNCTIONS
-# =============================================================================
-
-def run_visualization(config, logger, workspace_root, json_file):
-    """Run visualize_graph.py to generate partitions and graph."""
-    logger.log("Generating visualization and partitions...")
-    
-    mfotl_file = config['input']['mfotl']
-    output_dir = config['output']['directory']
-    
-    # Make output directory absolute if it's relative
-    if not os.path.isabs(output_dir):
-        output_dir = os.path.join(workspace_root, output_dir)
-    
-    output_html = DEFAULT_GRAPH_HTML
-    
-    # Build command
-    viz_script = os.path.join(workspace_root, DIR_VIZ, 'visualize_graph.py')
-    
-    cmd = [
-        sys.executable,  # Use current Python interpreter
-        viz_script,
-        json_file,
-        output_html,
-        '--output-dir', output_dir,
-        '--merge-strategy', config['visualization']['merge_strategy']
-    ]
-    
-    if config['visualization'].get('filter_polarity'):
-        cmd.append('--filter-polarity')
-    
-    if config['visualization'].get('max_merge_size') is not None:
-        cmd.extend(['--max-merge-size', str(config['visualization']['max_merge_size'])])
-    
-    if config['input'].get('mfotl'):
-        cmd.extend(['--mfotl', config['input']['mfotl']])
-    
-    if config['input'].get('signature'):
-        cmd.extend(['--sig', config['input']['signature']])
-    
-    logger.log(f"Command: {' '.join(cmd)}")
-    logger.log("")  # Empty line before output
-    
-    try:
-        # Run command with real-time output (line buffering)
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=LINE_BUFFER_SIZE,  # Line buffering for real-time output
-            cwd=workspace_root
-        )
+    Args:
+        config: Configuration dictionary
+        logger: WorkflowLogger instance
+        workspace_root: Root directory of workspace
         
-        # Stream output in real time
-        for line in process.stdout:
-            line = line.rstrip()
-            if line:
-                logger.log(line)
-        
-        # Wait for process to complete
-        return_code = process.wait()
-        
-        if return_code == 0:
-            logger.log("✓ Visualization completed successfully", LOG_LEVEL_SUCCESS)
-            return True
-        else:
-            logger.log(f"✗ Visualization failed with exit code {return_code}", LOG_LEVEL_ERROR)
-            return False
-        
-    except Exception as e:
-        logger.log(f"✗ Visualization failed: {e}", LOG_LEVEL_ERROR)
+    Returns:
+        True if successful, False otherwise
+    """
+    # Get source directory (where partition files are located)
+    partition_source = config['partition_execution'].get('partition_source_dir')
+    if not partition_source:
+        logger.log("✗ partition_source_dir not specified in config", LOG_LEVEL_ERROR)
         return False
 
+    # Make source directory absolute if it's relative
+    if not os.path.isabs(partition_source):
+        partition_source = os.path.join(workspace_root, partition_source)
+
+    if not os.path.exists(partition_source):
+        logger.log(f"✗ Partition source directory not found: {partition_source}", LOG_LEVEL_ERROR)
+        return False
+
+    # Get target directory (where partition files should be copied to)
+    partition_dir = config['partition_execution']['partition_dir']
+    if not os.path.isabs(partition_dir):
+        partition_dir = os.path.join(workspace_root, partition_dir)
+
+    # Create target directory
+    os.makedirs(partition_dir, exist_ok=True)
+
+    # Find all .mfotl files in source directory
+    source_files = list(Path(partition_source).glob(FILE_PATTERN_MFOTL))
+
+    if not source_files:
+        logger.log(f"✗ No .mfotl files found in source directory", LOG_LEVEL_ERROR)
+        return False
+
+    # Copy each file
+    for source_file in source_files:
+        target_file = os.path.join(partition_dir, source_file.name)
+        try:
+            shutil.copy2(source_file, target_file)
+        except Exception as e:
+            logger.log(f"✗ Failed to copy {source_file.name}: {e}", LOG_LEVEL_ERROR)
+            return False
+
+    logger.log(f"✓ Copied {len(source_files)} partition files", LOG_LEVEL_SUCCESS)
+    return True
+
+
+    # =============================================================================
+    # VISUALIZATION FUNCTIONS
+    # =============================================================================
+
+    def run_visualization(config, logger, workspace_root, json_file):
+        """Run visualize_graph.py to generate partitions and graph."""
+        logger.log("Generating visualization and partitions...")
+        
+        mfotl_file = config['input']['mfotl']
+        output_dir = config['output']['directory']
+        
+        # Make output directory absolute if it's relative
+        if not os.path.isabs(output_dir):
+            output_dir = os.path.join(workspace_root, output_dir)
+        
+        output_html = DEFAULT_GRAPH_HTML
+        
+        # Build command
+        viz_script = os.path.join(workspace_root, DIR_VIZ, 'visualize_graph.py')
+        
+        cmd = [
+            sys.executable,  # Use current Python interpreter
+            viz_script,
+            json_file,
+            output_html,
+            '--output-dir', output_dir,
+            '--merge-strategy', config['visualization']['merge_strategy']
+        ]
+        
+        if config['visualization'].get('filter_polarity'):
+            cmd.append('--filter-polarity')
+        
+        if config['visualization'].get('max_merge_size') is not None:
+            cmd.extend(['--max-merge-size', str(config['visualization']['max_merge_size'])])
+        
+        if config['input'].get('mfotl'):
+            cmd.extend(['--mfotl', config['input']['mfotl']])
+        
+        if config['input'].get('signature'):
+            cmd.extend(['--sig', config['input']['signature']])
+        
+        logger.log("")  # Empty line before output
+        
+        try:
+            # Run command with real-time output (line buffering)
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=LINE_BUFFER_SIZE,  # Line buffering for real-time output
+                cwd=workspace_root
+            )
+            
+            # Stream output in real time
+            for line in process.stdout:
+                line = line.rstrip()
+                if line:
+                    logger.log(line)
+            
+            # Wait for process to complete
+            return_code = process.wait()
+            
+            if return_code == 0:
+                logger.log("✓ Visualization completed successfully", LOG_LEVEL_SUCCESS)
+                return True
+            else:
+                logger.log(f"✗ Visualization failed with exit code {return_code}", LOG_LEVEL_ERROR)
+                return False
+            
+        except Exception as e:
+            logger.log(f"✗ Visualization failed: {e}", LOG_LEVEL_ERROR)
+            return False
 
 # =============================================================================
 # ENFORCEMENT EXECUTION
@@ -478,7 +533,6 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir, log_fi
     # Add json-summary argument
     cmd.extend(['-j', enforcement_results_file])
     
-    logger.log(f"Command: {' '.join(cmd)}")
     logger.log("")  # Empty line before output
     
     try:
@@ -505,9 +559,6 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir, log_fi
         
         # Wait for process to complete
         return_code = process.wait()
-        
-        # JSON summary is saved by run_partition_enfguard.py itself
-        logger.log(f"Enforcement results summary saved to: {enforcement_results_file}")
         
         if return_code == 0:
             logger.log("✓ All partitions ran successfully", LOG_LEVEL_SUCCESS)
@@ -560,8 +611,6 @@ def generate_step_by_step_plot(config, logger, workspace_root, script_dir, enfor
         '-o', plot_file
     ]
     
-    logger.log(f"Command: {' '.join(cmd)}")
-    
     try:
         result = subprocess.run(
             cmd,
@@ -577,7 +626,7 @@ def generate_step_by_step_plot(config, logger, workspace_root, script_dir, enfor
                 logger.log(line)
         
         if result.returncode == 0:
-            logger.log(f"✓ Plot generated: {plot_file}", "SUCCESS")
+            logger.log("✓ Plot generated", "SUCCESS")
             return True
         else:
             logger.log(f"✗ Plot generation failed with exit code {result.returncode}", "ERROR")
@@ -632,8 +681,6 @@ def generate_diff_statistics_plot(config, logger, workspace_root, script_dir, di
         diff_dir
     ]
     
-    logger.log(f"Command: {' '.join(cmd)}")
-    
     try:
         result = subprocess.run(
             cmd,
@@ -649,8 +696,7 @@ def generate_diff_statistics_plot(config, logger, workspace_root, script_dir, di
                 logger.log(line)
         
         if result.returncode == 0:
-            combined_plot_file = os.path.join(plots_dir, PLOT_COMBINED_PARTITION_DIFFERENCES)
-            logger.log(f"✓ Plots generated: {plot_file} and {combined_plot_file}", LOG_LEVEL_SUCCESS)
+            logger.log("✓ Plots generated", LOG_LEVEL_SUCCESS)
             return True
         else:
             logger.log(f"✗ Plot generation failed with exit code {result.returncode}", LOG_LEVEL_ERROR)
@@ -711,8 +757,6 @@ def generate_multi_log_summary_plots(config, logger, workspace_root, script_dir,
         '-o', plot_prefix
     ]
     
-    logger.log(f"Command: {' '.join(cmd)}")
-    
     try:
         result = subprocess.run(
             cmd,
@@ -728,12 +772,7 @@ def generate_multi_log_summary_plots(config, logger, workspace_root, script_dir,
                 logger.log(line)
         
         if result.returncode == 0:
-            logger.log(f"✓ Multi-log summary plots generated:", LOG_LEVEL_SUCCESS)
-            logger.log(f"  - {PLOT_MULTI_LOG_MATCHING_STATUS}")
-            logger.log(f"  - {PLOT_MULTI_LOG_EVENT_DIFFERENCES}")
-            logger.log(f"  - {PLOT_MULTI_LOG_SPEEDUP}")
-            logger.log(f"  - {PLOT_MULTI_LOG_EXECUTION_TIME}")
-            logger.log(f"  - {PLOT_MULTI_LOG_COMPLEXITY}")
+            logger.log("✓ Multi-log summary plots generated", LOG_LEVEL_SUCCESS)
             return True
         else:
             logger.log(f"✗ Plot generation failed with exit code {result.returncode}", LOG_LEVEL_ERROR)
@@ -808,14 +847,14 @@ def run_workflow(config_file, output_name):
     if not os.path.isabs(output_dir):
         output_dir = os.path.join(workspace_root, output_dir)
     
-    # Refuse to overwrite an existing output directory
+    # Check if output directory already exists
     if os.path.exists(output_dir):
-        print(f"Error: output directory already exists: {output_dir}")
-        print("Choose a different name or remove the directory manually.")
+        print(f"Error: Output directory already exists: {output_dir}")
+        print("Please choose a different output name or remove the existing directory.")
         return 1
     
     # Create output directory
-    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(output_dir)
     
     # Setup logger (always enabled with fixed filename)
     log_file = os.path.join(output_dir, DEFAULT_WORKFLOW_LOG)
@@ -862,6 +901,15 @@ def run_workflow(config_file, output_name):
             logger.log("Warning: Failed to generate normalized MFOTL, continuing...", LOG_LEVEL_WARNING)
     else:
         logger.log("Visualization step skipped (disabled in config)")
+        # copy pre-generated partition files from source directory (fallback option).
+        # Note: partition_source_dir is ignored when visualization is enabled.
+        if config['partition_execution'].get('enabled'):
+            if config['partition_execution'].get('partition_source_dir'):
+                logger.log("STEP 1.5: COPYING PRE-GENERATED PARTITION FILES")
+                if not copy_partition_files(config, logger, workspace_root):
+                    success = False
+                    logger.section("WORKFLOW FAILED")
+                    return 1
     
     # Step 2: Run partition enforcement if enabled (iterate over all logs)
     log_results_summary = []
@@ -961,8 +1009,6 @@ def run_workflow(config_file, output_name):
             
             with open(summary_file, 'w') as f:
                 json.dump(summary, f, indent=2)
-            
-            logger.log(f"Summary saved to: {summary_file}")
             
             # Generate summary plots
             if not generate_multi_log_summary_plots(config, logger, workspace_root, script_dir, 

@@ -89,7 +89,7 @@ def plot_complexity_vs_time(json_file: str, mfotl_dir: str, output_file: str = N
         num_lets, num_rules = count_mfotl_elements(str(mfotl_path))
         
         print(f"  {partition_name:8s}: {num_rules:2d} rules, {num_lets:2d} LETs | "
-              f"Batch: {batch_time:.3f}s")
+              f"Batch: {batch_time:.6f}s")
         
         partition_names.append(partition_name)
         num_rules_list.append(num_rules)
@@ -182,7 +182,6 @@ def plot_complexity_vs_time(json_file: str, mfotl_dir: str, output_file: str = N
     # Save or show
     if output_file:
         plt.savefig(output_file, dpi=300, bbox_inches='tight')
-        print(f"\nPlot saved to: {output_file}")
     else:
         plt.show()
     

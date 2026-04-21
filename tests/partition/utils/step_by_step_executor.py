@@ -270,9 +270,9 @@ def run_enfguard_step_by_step(
             }
             step_results.append(step_result)
             
-            # Print step summary
+            # Print step summary with microsecond precision
             status_emoji = "✓" if completed else "✗"
-            print(f"{status_emoji} tp{timepoint} (@{timestamp}): {step_time:.3f}s - {block_desc}")
+            print(f"{status_emoji} tp{timepoint} (@{timestamp}): {step_time:.6f}s - {block_desc}")
             
             # Print errors if encountered
             if not completed or step_stderr:
@@ -390,8 +390,8 @@ if __name__ == "__main__":
     print(f"Status: {results['status']}")
     print(f"Timepoints: {results['total_timepoints']}")
     print(f"Lines processed: {results['completed_steps']}/{results['total_lines']}")
-    print(f"Total time: {results['total_time']:.3f}s")
-    print(f"Avg per timepoint: {results['avg_step_time']:.3f}s")
+    print(f"Total time: {results['total_time']:.6f}s")
+    print(f"Avg per timepoint: {results['avg_step_time']:.6f}s")
     
     # Print block statistics
     reactive_total = results.get('reactive_total', 0)

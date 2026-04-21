@@ -34,7 +34,6 @@ def pretty_print_mfotl(input_file, output_file):
         f.write('\n'.join(lines))
     
     print(f"Pretty printed {len(let_order)} LETs and {len(rules)} rules")
-    print(f"Output written to: {output_file}")
 
 
 if __name__ == "__main__":

@@ -104,10 +104,10 @@ def print_timing_result(
     prefix = "" if is_reference else f"[{name}] "
     
     if repeat_runs > 1:
-        print(f"{prefix}{status} - Mean time: {time_stats['mean']:.3f}s (±{time_stats['std']:.3f}s), "
-              f"Min: {time_stats['min']:.3f}s, Max: {time_stats['max']:.3f}s")
+        print(f"{prefix}{status} - Mean time: {time_stats['mean']:.6f}s (±{time_stats['std']:.6f}s), "
+              f"Min: {time_stats['min']:.6f}s, Max: {time_stats['max']:.6f}s")
     else:
-        print(f"{prefix}{status} - Time: {time_stats['mean']:.2f}s")
+        print(f"{prefix}{status} - Time: {time_stats['mean']:.6f}s")
 
 
 def get_partition_id(partition_name: str) -> str:
@@ -254,7 +254,7 @@ def handle_enfguard_failure(
         status = f"✗ FAILED (exit code {exit_code})"
         label = "failure"
     
-    print(f"[{partition_name}] {status} - Time: {elapsed_time:.2f}s")
+    print(f"[{partition_name}] {status} - Time: {elapsed_time:.6f}s")
     
     if exit_code != 124:
         print("Error output:")
@@ -544,7 +544,7 @@ def execute_enfguard_runs(
                 if run_idx == 0:
                     stdout_result = step_data.get('stdout', '')
                     avg_time = step_data.get('avg_step_time', 0.0)
-                    print(f"[{name}] {step_data['total_steps']} steps, avg {avg_time:.3f}s/step")
+                    print(f"[{name}] {step_data['total_steps']} steps, avg {avg_time:.6f}s/step")
                 elif repeat_runs > 1 and (run_idx + 1) % max(1, repeat_runs // 4) == 0:
                     print(f"[{name}] Progress: {run_idx + 1}/{repeat_runs} runs completed")
             except Exception as e:
@@ -563,7 +563,7 @@ def execute_enfguard_runs(
                 return None, None, None, []
             
             time_runs.append(elapsed_time)
-            print(f"[{name}] Batch run {run_idx + 1}/{repeat_runs}: {elapsed_time:.3f}s")
+            print(f"[{name}] Batch run {run_idx + 1}/{repeat_runs}: {elapsed_time:.6f}s")
             
             if run_idx == 0:
                 stdout_result = stdout
@@ -580,7 +580,7 @@ def execute_enfguard_runs(
         aggregated_step_timing = aggregate_step_by_step_timing(step_by_step_runs)
         if repeat_runs > 1:
             avg_stats = aggregated_step_timing['avg_step_time_stats']
-            print(f"[{name}] Aggregated: mean {avg_stats['mean']:.3f}s/step (±{avg_stats['std']:.3f}s)")
+            print(f"[{name}] Aggregated: mean {avg_stats['mean']:.6f}s/step (±{avg_stats['std']:.6f}s)")
     
     return stdout_result, time_stats, aggregated_step_timing, step_by_step_runs
 
@@ -761,13 +761,9 @@ def run_partition_enfguard(
         elif reference_output is not None:
             match_str = "✓ MATCHES" if output_matches else "✗ DIFFERS"
             match_pct = f"{match_percentage:.2f}%" if match_percentage is not None else "unknown"
-            print(f"[{partition_name}] {status} - Time: {time_stats['mean']:.2f}s - Output: {match_str} ({match_pct})")
-            
-            if diff_subdir:
-                partition_id = get_partition_id(partition_name)
-                print(f"  Detailed diff saved to: {os.path.join(diff_subdir, f'diff_{partition_id}.json')}")
+            print(f"[{partition_name}] {status} - Time: {time_stats['mean']:.6f}s - Output: {match_str} ({match_pct})")
         else:
-            print(f"[{partition_name}] {status} - Time: {time_stats['mean']:.2f}s")
+            print(f"[{partition_name}] {status} - Time: {time_stats['mean']:.6f}s")
         
         return create_result_dict(
             partition_name, status, 0, time_stats,
@@ -843,14 +839,12 @@ def combine_and_compare_partitions(
         combined_output_file = os.path.join(output_subdir, "combined_partitions_output.txt")
         with open(combined_output_file, 'w') as f:
             f.write(combined_output)
-        print(f"Combined output saved to: {combined_output_file}")
         
         # Save combined blocks as JSON
         parsed_output_dir = os.path.join(output_subdir, "parsed_output")
         os.makedirs(parsed_output_dir, exist_ok=True)
         combined_blocks_json_file = os.path.join(parsed_output_dir, "combined_partitions_blocks.json")
         blocks_to_json_file(combined_blocks, combined_blocks_json_file)
-        print(f"Combined blocks JSON saved to: {combined_blocks_json_file}")
     
     # Compare combined output to reference
     # Load reference blocks from JSON if available (preserves step-by-step timepoints)
@@ -887,7 +881,6 @@ def combine_and_compare_partitions(
     if diff_subdir:
         combined_diff_file = os.path.join(diff_subdir, "combined_partitions_diff.json")
         save_comparison_json(combined_comparison, combined_diff_file)
-        print(f"  Detailed diff saved to: {combined_diff_file}")
     
     # Return combined matching info
     return {
@@ -963,18 +956,18 @@ def print_summary(
         slowest_partition = max(successful_results, key=lambda r: r['time_stats']['mean'])
         
         print(f"\nTiming (successful runs only):")
-        print(f"  Total time (sequential, mean): {total_time:.2f}s")
-        print(f"  Average time (mean): {avg_time:.2f}s")
-        print(f"  Min time (fastest): {min_time:.2f}s - {fastest_partition['file']}")
-        print(f"  Max time (slowest): {max_time:.2f}s - {slowest_partition['file']}")
+        print(f"  Total time (sequential, mean): {total_time:.6f}s")
+        print(f"  Average time (mean): {avg_time:.6f}s")
+        print(f"  Min time (fastest): {min_time:.6f}s - {fastest_partition['file']}")
+        print(f"  Max time (slowest): {max_time:.6f}s - {slowest_partition['file']}")
         
         if reference_time is not None:
             # reference_time is now a dict with stats
             ref_mean = reference_time['mean'] if isinstance(reference_time, dict) else reference_time
             speedup = ref_mean / max_time if max_time > 0 else 0
             print(f"\nComparison to reference (parallel execution):")
-            print(f"  Reference time: {ref_mean:.2f}s")
-            print(f"  Slowest partition: {max_time:.2f}s - {slowest_partition['file']}")
+            print(f"  Reference time: {ref_mean:.6f}s")
+            print(f"  Slowest partition: {max_time:.6f}s - {slowest_partition['file']}")
             if speedup >= 1:
                 print(f"  Speedup: {speedup:.2f}x FASTER")
             else:
@@ -1205,7 +1198,6 @@ def run_enfguard_on_partitions(
     # Save JSON summary if requested
     if json_summary:
         save_json_summary(results, reference_output, reference_time, json_summary, combined_comparison)
-        print(f"\nJSON summary saved to: {json_summary}")
     
     # Return exit code: 0 if all succeeded, 1 if any failed or timed out
     success_count = sum(1 for r in results if r['exit_code'] == 0)

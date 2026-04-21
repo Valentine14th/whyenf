@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Plot step-by-step timing results from partition enforcement.
-Shows runtime per step for each partition with reference lines for batch and total time.
+Shows runtime per step for each partition in interactive/incremental mode.
 """
 
 import argparse
@@ -119,14 +119,12 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
     
     # Extract reference timing if available
     reference_timing = None
-    reference_batch_time = None
     if 'timing' in data and 'reference_comparison' in data['timing']:
         ref_comp = data['timing']['reference_comparison']
         if 'reference_time_stats' in ref_comp:
             ref_stats = ref_comp['reference_time_stats']
             if 'step_by_step_timing' in ref_stats:
                 reference_timing = ref_stats['step_by_step_timing']
-                reference_batch_time = ref_stats.get('mean')
     
     if not partitions_with_timing and not reference_timing:
         print("No step-by-step timing data found")
@@ -153,8 +151,7 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
     # Colors for different partitions
     colors = plt.cm.tab10(np.linspace(0, 1, len(partitions_with_timing)))
     
-    # Track batch and interactive times for reference lines
-    batch_times = []
+    # Track total times for summary stats
     total_times = []
     
     # Track outlier run counts
@@ -203,10 +200,8 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
             print(f"  {partition_name}: Warning - no steps found, skipping partition")
             continue
         
-        batch_time = partition['time_stats']['mean']
         total_time = partition['step_by_step_timing']['total_time_stats']['mean']
         
-        batch_times.append(batch_time)
         total_times.append(total_time)
         
         # Extract timepoints, step times, timestamps, and block metadata
@@ -406,8 +401,7 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
                                        times_arr + stds_arr,
                                        color='gray', alpha=0.2, zorder=9)
     
-    # Calculate average times for summary stats (but don't plot them)
-    avg_batch_time = np.mean(batch_times) if batch_times else 0
+    # Calculate average time for summary stats
     avg_total_time = np.mean(total_times) if total_times else 0
     
     # Check if any partition has multiple runs
@@ -507,7 +501,7 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
     step_times_all = [s['step_time_stats']['mean'] for p in partitions_with_timing for s in p['step_by_step_timing']['steps']]
     if reference_timing and reference_timing.get('steps'):
         step_times_all.extend([s['step_time_stats']['mean'] for s in reference_timing['steps']])
-    if step_times_all and max(step_times_all) / min(step_times_all) > 100:
+    if step_times_all and max(step_times_all) / min(step_times_all) > 200:
         ax.set_yscale('log')
         ax.set_ylabel('Time (proactive+reactive, log scale) [seconds]', fontsize=12, fontweight='bold')
     
@@ -516,23 +510,19 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
     # Save or show
     if output_file:
         plt.savefig(output_file, dpi=300, bbox_inches='tight')
-        print(f"Plot saved to: {output_file}")
     else:
         plt.show()
     
-    # Print summary statistics
+    # Print summary statistics (step-by-step mode only - no batch runs)
     print("\n=== Timing Summary ===")
-    if batch_times:
-        print(f"Average Batch Time: {avg_batch_time:.3f}s")
-        print(f"Average Total Time (step-by-step): {avg_total_time:.3f}s")
-        print(f"Overhead: {avg_total_time - avg_batch_time:.3f}s ({((avg_total_time/avg_batch_time - 1) * 100):.1f}%)")
+    if total_times:
+        print(f"Average Total Time (step-by-step): {avg_total_time:.6f}s")
     
     # Per-partition summary
     if partitions_with_timing:
         print("\nPer-Partition Details:")
         for idx, partition in enumerate(partitions_with_timing):
             partition_name = partition['file'].replace('minitwit_gdpr_4_partition_', 'P').replace('.mfotl', '')
-            batch_time = partition['time_stats']['mean']
             total_time_stats = partition['step_by_step_timing']['total_time_stats']
             total_time = total_time_stats['mean']
             num_steps = partition['step_by_step_timing']['total_steps']
@@ -542,14 +532,12 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
             num_runs = partition['step_by_step_timing'].get('num_runs', 1)
             if num_runs > 1:
                 print(f"  {partition_name:8s}: {num_steps:2d} steps | "
-                      f"Batch: {batch_time:.3f}s | "
-                      f"Total: {total_time:.3f}s (±{total_time_stats['std']:.3f}s, {num_runs} runs) | "
-                      f"Avg/step: {avg_step:.3f}s")
+                      f"Total: {total_time:.6f}s (±{total_time_stats['std']:.6f}s, {num_runs} runs) | "
+                      f"Avg/step: {avg_step:.6f}s")
             else:
                 print(f"  {partition_name:8s}: {num_steps:2d} steps | "
-                      f"Batch: {batch_time:.3f}s | "
-                      f"Total: {total_time:.3f}s | "
-                  f"Avg/step: {avg_step:.4f}s")
+                      f"Total: {total_time:.6f}s | "
+                  f"Avg/step: {avg_step:.6f}s")
     
     # Print reference summary if available
     if reference_timing:
@@ -562,14 +550,12 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
         
         if ref_num_runs > 1:
             print(f"  Reference: {ref_num_steps:2d} steps | "
-                  f"Batch: {reference_batch_time:.3f}s | "
-                  f"Total: {ref_total_time:.3f}s (±{ref_total_time_stats['std']:.3f}s, {ref_num_runs} runs) | "
-                  f"Avg/step: {ref_avg_step:.3f}s")
+                  f"Total: {ref_total_time:.6f}s (±{ref_total_time_stats['std']:.6f}s, {ref_num_runs} runs) | "
+                  f"Avg/step: {ref_avg_step:.6f}s")
         else:
             print(f"  Reference: {ref_num_steps:2d} steps | "
-                  f"Batch: {reference_batch_time:.3f}s | "
-                  f"Total: {ref_total_time:.3f}s | "
-                  f"Avg/step: {ref_avg_step:.4f}s")
+                  f"Total: {ref_total_time:.6f}s | "
+                  f"Avg/step: {ref_avg_step:.6f}s")
 
 
 def main():

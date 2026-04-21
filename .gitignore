@@ -36,3 +36,5 @@ ressources/
 viz/lib/
 partition_output/
 tests/partition/results
+**/target/
+Cargo.lock

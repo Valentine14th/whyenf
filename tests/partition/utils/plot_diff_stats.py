@@ -258,7 +258,6 @@ def plot_diff_statistics(diff_dir):
     # Save figure
     output_path = plots_dir / 'partition_differences_plot.png'
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    print(f"Plot saved to: {output_path}")
     
     plt.close()  # Close instead of show to avoid GUI issues
 
@@ -362,7 +361,6 @@ def plot_combined_diff_statistics(diff_dir):
     # Save figure
     output_path = plots_dir / 'combined_partition_differences_plot.png'
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    print(f"Combined plot saved to: {output_path}")
     
     plt.close()  # Close instead of show to avoid GUI issues
 
