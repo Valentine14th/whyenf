@@ -176,7 +176,8 @@ def regenerate_step_by_step_timing_plot(log_dir: Path, script_dir: Path, partiti
             cmd,
             capture_output=True,
             text=True,
-            timeout=60
+            timeout=300
+            
         )
         
         if result.returncode == 0:
@@ -246,7 +247,7 @@ def regenerate_partition_differences_plot(log_dir: Path, script_dir: Path):
             cmd,
             capture_output=True,
             text=True,
-            timeout=60
+            timeout=300
         )
         
         if result.returncode == 0:
@@ -324,7 +325,7 @@ def regenerate_summary_plots(results_dir: Path, script_dir: Path, partition_name
             cmd,
             capture_output=True,
             text=True,
-            timeout=120
+            timeout=300
         )
         
         if result.returncode == 0:

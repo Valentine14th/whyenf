@@ -87,8 +87,20 @@ def plot_matching_and_failures(summary_data: dict, results_dir: Path = None, out
             match_percentages.append(0)
         else:
             combined_comp = summary['combined_output_comparison']
-            combined_matches = combined_comp.get('combined_matches', False)
-            match_pct = combined_comp.get('combined_match_percentage', 0)
+            # Use no_labels match percentage (ignoring label differences)
+            # Fall back to regular match percentage if not available
+            combined_matches_no_labels = combined_comp.get('combined_matches_no_labels')
+            match_pct_no_labels = combined_comp.get('combined_match_percentage_no_labels')
+            
+            if match_pct_no_labels is not None:
+                # Use no_labels version (ignores label differences)
+                match_pct = match_pct_no_labels
+                combined_matches = combined_matches_no_labels if combined_matches_no_labels is not None else (match_pct == 100.0)
+            else:
+                # Fall back to old version
+                combined_matches = combined_comp.get('combined_matches', False)
+                match_pct = combined_comp.get('combined_match_percentage', 0)
+            
             match_percentages.append(match_pct)
             
             if combined_matches:
@@ -180,7 +192,7 @@ def plot_matching_and_failures(summary_data: dict, results_dir: Path = None, out
     
     ax1.pie(sizes_filtered, explode=explode_filtered, labels=labels_filtered, colors=colors_filtered,
             autopct='%1.1f%%', shadow=False, startangle=90, textprops={'fontsize': 11, 'fontweight': 'bold'})
-    ax1.set_title(f'Combined Partition Matching Status\n({len(log_results)} total logs)', 
+    ax1.set_title(f'Combined Partition Matching Status\n(Causation & Suppression only)\n({len(log_results)} total logs)', 
                   fontsize=13, fontweight='bold')
     
     # Plot 1b: Bar chart per log showing match percentage
@@ -206,7 +218,7 @@ def plot_matching_and_failures(summary_data: dict, results_dir: Path = None, out
     ax2.set_yticklabels(log_names, fontsize=9)
     ax2.set_xlim(0, 100)
     ax2.set_xlabel('Match Percentage (%)', fontsize=10, fontweight='bold')
-    ax2.set_title('Combined Output Match Percentage per Log', fontsize=13, fontweight='bold')
+    ax2.set_title('Combined Output Match % per Log\n(Causation & Suppression only)', fontsize=13, fontweight='bold')
     ax2.invert_yaxis()
     ax2.grid(axis='x', alpha=0.3)
     

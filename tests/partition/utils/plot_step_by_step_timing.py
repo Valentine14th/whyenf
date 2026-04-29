@@ -49,6 +49,36 @@ def detect_outliers(values, method='iqr', threshold=3.0):
     return outliers.tolist()
 
 
+def moving_average(data, window_size):
+    """
+    Calculate moving average of data using a sliding window.
+    
+    Args:
+        data: List or array of numeric values
+        window_size: Size of the moving window
+    
+    Returns:
+        Array of smoothed values (same length as input)
+    """
+    data_array = np.array(data)
+    if len(data_array) < window_size:
+        return data_array
+    
+    # Use numpy's convolve for efficient moving average
+    # Mode 'same' returns output of same length as input
+    kernel = np.ones(window_size) / window_size
+    smoothed = np.convolve(data_array, kernel, mode='same')
+    
+    # Fix edge effects by using smaller windows at edges
+    for i in range(window_size // 2):
+        # Left edge
+        smoothed[i] = np.mean(data_array[:i + window_size // 2 + 1])
+        # Right edge
+        smoothed[-(i+1)] = np.mean(data_array[-(i + window_size // 2 + 1):])
+    
+    return smoothed
+
+
 def filter_outliers_within_step_runs(step):
     """
     Filter outlier runs within a single step and recalculate statistics.
@@ -140,10 +170,18 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
     )
     if reference_timing and reference_timing.get('steps'):
         max_timepoints = max(max_timepoints, len(reference_timing['steps']))
-    MARKER_THRESHOLD = 50
+    
+    MARKER_THRESHOLD = 50  # Suppress markers above this
+    SMOOTHING_THRESHOLD = 100  # Apply moving average above this
+    SMOOTHING_WINDOW = max(5, max_timepoints // 50)  # Adaptive window size
+    
     many_timepoints = max_timepoints > MARKER_THRESHOLD
+    should_smooth = max_timepoints > SMOOTHING_THRESHOLD
+    
     if many_timepoints:
         print(f"  Many timepoints ({max_timepoints} > {MARKER_THRESHOLD}): block-type markers suppressed")
+    if should_smooth:
+        print(f"  Very many timepoints ({max_timepoints} > {SMOOTHING_THRESHOLD}): applying moving average (window={SMOOTHING_WINDOW})")
     
     # Create figure
     fig, ax = plt.subplots(figsize=(14, 8))
@@ -210,6 +248,14 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
         step_stds = [s['step_time_stats']['std'] for s in steps]
         timestamps = [s.get('timestamp', s['timepoint']) for s in steps]  # Fall back to timepoint if timestamp missing
         
+        # Apply smoothing if we have many timepoints
+        if should_smooth:
+            step_times_smoothed = moving_average(step_times, SMOOTHING_WINDOW)
+            step_stds_smoothed = moving_average(step_stds, SMOOTHING_WINDOW)
+        else:
+            step_times_smoothed = step_times
+            step_stds_smoothed = step_stds
+        
         # Group points by block type for different markers
         block_groups = {}
         for s in steps:
@@ -227,8 +273,8 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
         has_variance = num_runs > 1 and any(std > 0 for std in step_stds)
         
         if not many_timepoints:
-            # Plot single connecting line
-            ax.plot(timepoints, step_times,
+            # Plot single connecting line (use smoothed if applicable)
+            ax.plot(timepoints, step_times_smoothed,
                     linewidth=1.5,
                     color=colors[idx],
                     alpha=0.8,
@@ -255,8 +301,8 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
                           zorder=2)
             
             if has_variance:
-                step_times_array = np.array(step_times)
-                step_stds_array = np.array(step_stds)
+                step_times_array = np.array(step_times_smoothed)
+                step_stds_array = np.array(step_stds_smoothed)
                 ax.fill_between(timepoints,
                                step_times_array - step_stds_array,
                                step_times_array + step_stds_array,
@@ -276,7 +322,11 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
             for bt in sorted(type_groups.keys()):
                 grp = type_groups[bt]
                 ls = type_linestyles.get(bt, '--')
-                ax.plot(grp['timepoints'], grp['times'],
+                
+                # Apply smoothing to this block type's data
+                times_to_plot = moving_average(grp['times'], SMOOTHING_WINDOW) if should_smooth else grp['times']
+                
+                ax.plot(grp['timepoints'], times_to_plot,
                         linewidth=1.5,
                         color=colors[idx],
                         alpha=0.8,
@@ -321,6 +371,14 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
             step_stds = [s['step_time_stats']['std'] for s in steps]
             timestamps = [s.get('timestamp', s['timepoint']) for s in steps]  # Fall back to timepoint if timestamp missing
             
+            # Apply smoothing if we have many timepoints
+            if should_smooth:
+                step_times_smoothed = moving_average(step_times, SMOOTHING_WINDOW)
+                step_stds_smoothed = moving_average(step_stds, SMOOTHING_WINDOW)
+            else:
+                step_times_smoothed = step_times
+                step_stds_smoothed = step_stds
+            
             # Group points by block type for different markers
             block_groups = {}
             for s in steps:
@@ -337,8 +395,8 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
             has_variance = num_runs > 1 and any(std > 0 for std in step_stds)
             
             if not many_timepoints:
-                # Plot single connecting line (black dashed)
-                ax.plot(timepoints, step_times,
+                # Plot single connecting line (black dashed, use smoothed data)
+                ax.plot(timepoints, step_times_smoothed,
                         linewidth=1.5,
                         linestyle='--',
                         color='black',
@@ -365,8 +423,8 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
                               zorder=11)
                 
                 if has_variance:
-                    step_times_array = np.array(step_times)
-                    step_stds_array = np.array(step_stds)
+                    step_times_array = np.array(step_times_smoothed)
+                    step_stds_array = np.array(step_stds_smoothed)
                     ax.fill_between(timepoints,
                                    step_times_array - step_stds_array,
                                    step_times_array + step_stds_array,
@@ -386,7 +444,11 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
                 for bt in sorted(ref_type_groups.keys()):
                     grp = ref_type_groups[bt]
                     ls = ref_type_linestyles.get(bt, '-.')
-                    ax.plot(grp['timepoints'], grp['times'],
+                    
+                    # Apply smoothing to reference block type data
+                    times_to_plot = moving_average(grp['times'], SMOOTHING_WINDOW) if should_smooth else grp['times']
+                    
+                    ax.plot(grp['timepoints'], times_to_plot,
                             linewidth=1.5,
                             linestyle=ls,
                             color='black',
@@ -394,8 +456,9 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
                             label=f"Reference ({bt})",
                             zorder=10)
                     if has_variance:
-                        times_arr = np.array(grp['times'])
-                        stds_arr = np.array(grp['stds'])
+                        stds_to_plot = moving_average(grp['stds'], SMOOTHING_WINDOW) if should_smooth else grp['stds']
+                        times_arr = np.array(times_to_plot)
+                        stds_arr = np.array(stds_to_plot)
                         ax.fill_between(grp['timepoints'],
                                        times_arr - stds_arr,
                                        times_arr + stds_arr,
@@ -460,14 +523,8 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
     ax.set_xlabel('Timepoint', fontsize=12, fontweight='bold')
     ax.set_ylabel('Time (proactive+reactive) [seconds]', fontsize=12, fontweight='bold')
     title = 'Step-by-Step Enforcement Timing'
-    if reference_timing:
-        title += ' (Partitions vs Reference)'
-    else:
-        title += ' per Partition'
-    if total_outlier_runs_removed > 0:
-        title += f' ({total_outlier_runs_removed} outlier run(s) filtered)'
     if any_multiple_runs:
-        title += ' (shaded regions show ±1 std dev)'
+        title += ' (±1 std dev)'
     ax.set_title(title, fontsize=14, fontweight='bold')
     ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
     
@@ -497,19 +554,33 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
     ax.legend(handles=block_type_legend_elements, bbox_to_anchor=(1.05, 0.6),
              loc='upper left', fontsize=8, title=block_type_legend_title, framealpha=0.9)
     
-    # Set y-axis to log scale if there's a large range
+    # Check if we should also generate a log scale version
     step_times_all = [s['step_time_stats']['mean'] for p in partitions_with_timing for s in p['step_by_step_timing']['steps']]
     if reference_timing and reference_timing.get('steps'):
         step_times_all.extend([s['step_time_stats']['mean'] for s in reference_timing['steps']])
-    if step_times_all and max(step_times_all) / min(step_times_all) > 200:
-        ax.set_yscale('log')
-        ax.set_ylabel('Time (proactive+reactive, log scale) [seconds]', fontsize=12, fontweight='bold')
+    
+    has_large_range = step_times_all and max(step_times_all) / min(step_times_all) > 100
     
     plt.tight_layout()
     
     # Save or show
     if output_file:
+        # Save linear scale version
         plt.savefig(output_file, dpi=300, bbox_inches='tight')
+        print(f"Saved linear scale plot: {output_file}")
+        
+        # If there's a large range, also save log scale version
+        if has_large_range:
+            ax.set_yscale('log')
+            ax.set_ylabel('Time (proactive+reactive, log scale) [seconds]', fontsize=12, fontweight='bold')
+            plt.tight_layout()
+            
+            # Generate log scale filename
+            from pathlib import Path
+            output_path = Path(output_file)
+            log_output = output_path.parent / f"{output_path.stem}_log{output_path.suffix}"
+            plt.savefig(log_output, dpi=300, bbox_inches='tight')
+            print(f"Saved log scale plot: {log_output}")
     else:
         plt.show()
     

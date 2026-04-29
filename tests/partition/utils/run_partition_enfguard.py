@@ -862,8 +862,16 @@ def combine_and_compare_partitions(
     )
     
     combined_match_pct = combined_comparison['summary']['match_percentage']
+    combined_match_pct_no_labels = combined_comparison['summary']['match_percentage_no_labels']
     combined_matches = (
         combined_comparison['summary']['differing_blocks'] == 0 and 
+        len(combined_comparison['missing_in_partition']) == 0 and
+        len(combined_comparison['extra_in_partition']) == 0
+    )
+    
+    # Also check if it matches when ignoring labels
+    combined_matches_no_labels = (
+        combined_comparison['summary']['matching_blocks_no_labels'] == combined_comparison['summary']['total_blocks'] and
         len(combined_comparison['missing_in_partition']) == 0 and
         len(combined_comparison['extra_in_partition']) == 0
     )
@@ -876,6 +884,8 @@ def combine_and_compare_partitions(
         print(f"  Differing blocks: {combined_comparison['summary']['differing_blocks']}")
         print(f"  Missing in combined: {len(combined_comparison['missing_in_partition'])}")
         print(f"  Extra in combined: {len(combined_comparison['extra_in_partition'])}")
+        if combined_matches_no_labels:
+            print(f"  ℹ Matches when ignoring labels ({combined_match_pct_no_labels:.2f}%)")
     
     # Save combined diff report (always, even when outputs match)
     if diff_subdir:
@@ -885,8 +895,11 @@ def combine_and_compare_partitions(
     # Return combined matching info
     return {
         'combined_matches': combined_matches,
+        'combined_matches_no_labels': combined_matches_no_labels,
         'combined_match_percentage': combined_match_pct,
+        'combined_match_percentage_no_labels': combined_match_pct_no_labels,
         'matching_blocks': combined_comparison['summary']['matching_blocks'],
+        'matching_blocks_no_labels': combined_comparison['summary']['matching_blocks_no_labels'],
         'total_blocks': combined_comparison['summary']['total_blocks'],
         'differing_blocks': combined_comparison['summary']['differing_blocks'],
         'missing_blocks': len(combined_comparison['missing_in_partition']),

@@ -275,9 +275,37 @@ def plot_combined_diff_statistics(diff_dir):
     combined_data = load_diff_file(combined_file)
     data_extra, data_missing = extract_partition_data(combined_data)
     
+    # Count total timepoints to adjust DPI
+    total_timepoints = 0
+    total_diff_timepoints = 0
+    for cat_key in ['suppression_reactive', 'suppression_proactive', 'causation_reactive', 'causation_proactive']:
+        cat_diff_timepoints = set()
+        for t, v in data_extra[cat_key].items():
+            if v != 0:
+                cat_diff_timepoints.add(t)
+        for t, v in data_missing[cat_key].items():
+            if v != 0:
+                cat_diff_timepoints.add(t)
+        total_diff_timepoints = max(total_diff_timepoints, len(cat_diff_timepoints))
+    
+    # Get total timepoints from the combined diff file
+    total_timepoints = len(combined_data.get('differing_blocks', []))
+    
+    # Use lower DPI for large datasets to speed up rendering
+    dpi = 150 if total_diff_timepoints > 200 else 300
+    if total_diff_timepoints > 200:
+        print(f"Large dataset ({total_diff_timepoints} timepoints with differences), using DPI={dpi} for faster rendering")
+    
     # Create figure with 4 subplots
     fig, axes = plt.subplots(2, 2, figsize=(16, 12))
-    fig.suptitle('Combined Partition Differences Over Time (+Extra / -Missing)', fontsize=16, fontweight='bold')
+    
+    # Add info about timepoints to title
+    if total_timepoints > 0:
+        fig.suptitle(f'Combined Partition Differences Over Time (+Extra / -Missing)\n'
+                     f'{total_diff_timepoints} timepoints with differences (out of {total_timepoints} total)',
+                     fontsize=16, fontweight='bold')
+    else:
+        fig.suptitle('Combined Partition Differences Over Time (+Extra / -Missing)', fontsize=16, fontweight='bold')
     
     categories = [
         ('suppression_reactive', 'Suppression - Reactive', axes[0, 0]),
@@ -290,11 +318,16 @@ def plot_combined_diff_statistics(diff_dir):
     combined_color = plt.cm.Set1(0)
     
     for cat_key, cat_title, ax in categories:
-        # Get timepoints relevant to this category only
-        category_timepoints = set()
-        category_timepoints.update(data_extra[cat_key].keys())
-        category_timepoints.update(data_missing[cat_key].keys())
-        timepoints = sorted(category_timepoints)
+        # Get timepoints with NON-ZERO differences only
+        timepoints_with_diffs = set()
+        for t, v in data_extra[cat_key].items():
+            if v != 0:
+                timepoints_with_diffs.add(t)
+        for t, v in data_missing[cat_key].items():
+            if v != 0:
+                timepoints_with_diffs.add(t)
+        
+        timepoints = sorted(timepoints_with_diffs)
         
         # Skip if no differences
         if not timepoints:
@@ -307,12 +340,6 @@ def plot_combined_diff_statistics(diff_dir):
         
         values_extra = [data_extra[cat_key].get(t, 0) for t in timepoints]
         values_missing = [data_missing[cat_key].get(t, 0) for t in timepoints]
-        
-        # Check if all values are zero
-        if all(v == 0 for v in values_extra + values_missing):
-            ax.text(0.5, 0.5, 'No differences', ha='center', va='center', transform=ax.transAxes, fontsize=12)
-            ax.set_title(cat_title, fontsize=14, fontweight='bold')
-            continue
         
         bar_width = 0.6
         
@@ -348,9 +375,9 @@ def plot_combined_diff_statistics(diff_dir):
         # Set integer ticks on y-axis
         ax.yaxis.set_major_locator(plt.MaxNLocator(integer=True))
         
-        # Set x-axis to show all timepoints
+        # Show all timepoint labels (rotated for readability)
         ax.set_xticks(x_positions)
-        ax.set_xticklabels(timepoints)
+        ax.set_xticklabels(timepoints, rotation=90, ha='center', fontsize=8)
     
     plt.tight_layout()
     
@@ -360,7 +387,7 @@ def plot_combined_diff_statistics(diff_dir):
     
     # Save figure
     output_path = plots_dir / 'combined_partition_differences_plot.png'
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.savefig(output_path, dpi=dpi, bbox_inches='tight')
     
     plt.close()  # Close instead of show to avoid GUI issues
 
@@ -372,5 +399,21 @@ if __name__ == '__main__':
     else:
         diff_dir = 'tests/partition/results/minitwit_full_output/partition_outputs/diff'
     
-    plot_diff_statistics(diff_dir)
-    plot_combined_diff_statistics(diff_dir)
+    # Check how many partition files exist
+    diff_path = Path(diff_dir)
+    partition_files = sorted(diff_path.glob('diff_*.json'))
+    num_partitions = len(partition_files)
+    
+    # Threshold for skipping individual partition plotting
+    MAX_PARTITIONS_FOR_INDIVIDUAL_PLOT = 10
+    
+    if num_partitions > MAX_PARTITIONS_FOR_INDIVIDUAL_PLOT:
+        print(f"Found {num_partitions} partitions (>{MAX_PARTITIONS_FOR_INDIVIDUAL_PLOT})")
+        print("Skipping individual partition plot due to large number of partitions")
+        print("Generating combined partition plot only...")
+        plot_combined_diff_statistics(diff_dir)
+    else:
+        print(f"Found {num_partitions} partitions (<={MAX_PARTITIONS_FOR_INDIVIDUAL_PLOT})")
+        print("Generating both individual and combined partition plots...")
+        plot_diff_statistics(diff_dir)
+        plot_combined_diff_statistics(diff_dir)
