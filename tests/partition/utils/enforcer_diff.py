@@ -285,8 +285,17 @@ def compare_lists(ref_list: List[str], part_list: List[str]) -> Tuple[bool, List
     return matches, only_in_ref, only_in_part
 
 
-def compare_blocks(ref_block: EnforcerBlock, part_block: EnforcerBlock) -> Tuple[bool, Optional[Dict]]:
-    """Compare two blocks with the same timestamp."""
+def compare_blocks(ref_block: EnforcerBlock, part_block: EnforcerBlock, ignore_labels: bool = False) -> Tuple[bool, Optional[Dict]]:
+    """Compare two blocks with the same timestamp.
+    
+    Args:
+        ref_block: Reference block
+        part_block: Partition block
+        ignore_labels: If True, ignore label differences when determining if blocks match
+    
+    Returns:
+        Tuple of (blocks_match, diff_dict)
+    """
     ref_causes, ref_suppressions = parse_block_actions(ref_block)
     part_causes, part_suppressions = parse_block_actions(part_block)
     
@@ -297,7 +306,13 @@ def compare_blocks(ref_block: EnforcerBlock, part_block: EnforcerBlock) -> Tuple
     suppressions_match, supp_only_ref, supp_only_part = compare_lists(ref_suppressions, part_suppressions)
     labels_match, labels_only_ref, labels_only_part = compare_lists(ref_labels, part_labels)
     
-    if causes_match and suppressions_match and labels_match:
+    # Determine if blocks match (optionally ignoring labels)
+    if ignore_labels:
+        blocks_match = causes_match and suppressions_match
+    else:
+        blocks_match = causes_match and suppressions_match and labels_match
+    
+    if blocks_match:
         return True, None
     
     diff_dict = {
@@ -431,13 +446,24 @@ def load_blocks_from_json(json_file: str) -> List[EnforcerBlock]:
     return [EnforcerBlock.from_dict(block_data) for block_data in data['blocks']]
 
 
-def compare_blocks_json(ref_blocks: List[EnforcerBlock], part_blocks: List[EnforcerBlock], partition_name: str = "partition") -> Dict:
-    """Compare two lists of blocks using timepoint-based matching."""
+def compare_blocks_json(ref_blocks: List[EnforcerBlock], part_blocks: List[EnforcerBlock], partition_name: str = "partition", ignore_labels: bool = False) -> Dict:
+    """Compare two lists of blocks using timepoint-based matching.
+    
+    Args:
+        ref_blocks: Reference blocks
+        part_blocks: Partition blocks
+        partition_name: Name for this partition
+        ignore_labels: If True, ignore label differences when calculating match percentage
+    
+    Returns:
+        Dictionary with comparison results including both regular and label-free match percentages
+    """
     ref_dict = {block.timepoint: block for block in ref_blocks}
     part_dict = {block.timepoint: block for block in part_blocks}
     all_timepoints = sorted(set(ref_dict.keys()) | set(part_dict.keys()))
     
     matching_blocks = 0
+    matching_blocks_no_labels = 0
     differing_blocks_details = []
     missing_in_partition = []
     extra_in_partition = []
@@ -446,10 +472,17 @@ def compare_blocks_json(ref_blocks: List[EnforcerBlock], part_blocks: List[Enfor
         ref_block, part_block = ref_dict.get(tp), part_dict.get(tp)
         
         if ref_block and part_block:
-            matches, diff_dict = compare_blocks(ref_block, part_block)
+            # Check with labels
+            matches, diff_dict = compare_blocks(ref_block, part_block, ignore_labels=False)
+            # Check without labels
+            matches_no_labels, _ = compare_blocks(ref_block, part_block, ignore_labels=True)
+            
             if matches:
                 matching_blocks += 1
-            else:
+            if matches_no_labels:
+                matching_blocks_no_labels += 1
+                
+            if not matches:
                 differing_blocks_details.append({
                     "timepoint": tp,
                     "timestamp": ref_block.timestamp,
@@ -471,14 +504,17 @@ def compare_blocks_json(ref_blocks: List[EnforcerBlock], part_blocks: List[Enfor
     
     total_blocks = len(all_timepoints)
     match_percentage = (matching_blocks / total_blocks * 100) if total_blocks > 0 else 0.0
+    match_percentage_no_labels = (matching_blocks_no_labels / total_blocks * 100) if total_blocks > 0 else 0.0
     
     return {
         'partition_name': partition_name,
         'summary': {
             'total_blocks': total_blocks,
             'matching_blocks': matching_blocks,
+            'matching_blocks_no_labels': matching_blocks_no_labels,
             'differing_blocks': len(differing_blocks_details),
-            'match_percentage': match_percentage
+            'match_percentage': match_percentage,
+            'match_percentage_no_labels': match_percentage_no_labels
         },
         'missing_in_partition': missing_in_partition,
         'extra_in_partition': extra_in_partition,
