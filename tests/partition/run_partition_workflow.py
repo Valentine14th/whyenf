@@ -48,7 +48,7 @@ PLOT_MULTI_LOG_EXECUTION_TIME = 'summary_execution_time.png'
 PLOT_MULTI_LOG_COMPLEXITY = 'summary_complexity_vs_time.png'
 
 # Timeouts (seconds)
-TIMEOUT_PLOT_GENERATION = 30
+TIMEOUT_PLOT_GENERATION = 300
 
 # Logging
 LOG_SEPARATOR_LENGTH = 80
@@ -166,9 +166,15 @@ def load_config(config_file):
     if config['partition_execution'].get('repeat_runs') is None:
         config['partition_execution']['repeat_runs'] = 1
     
-    # Set default for enfguard binary (relative to workspace root)
-    if config.get('enfguard_binary') is None:
-        config['enfguard_binary'] = 'enfguard'
+    # Set defaults for enfguard binaries (relative to workspace root)
+    # Support both old single binary config and new separate binary config
+    if config.get('visualization_binary') is None:
+        # Fall back to old config name for backward compatibility
+        config['visualization_binary'] = config.get('enfguard_binary', 'enfguard')
+    
+    if config.get('enforcement_binary') is None:
+        # Fall back to old config name for backward compatibility
+        config['enforcement_binary'] = config.get('enfguard_binary', 'enfguard')
     
     # Auto-set partition directory if not specified
     if config['partition_execution'].get('enabled'):
@@ -205,10 +211,12 @@ def generate_json(config, logger, workspace_root):
         os.path.splitext(os.path.basename(mfotl_file))[0] + FILE_EXT_JSON
     )
     
-    # Build enfguard command
-    enfguard_binary = config['enfguard_binary']
+    # Build enfguard command (use visualization binary)
+    enfguard_binary = config['visualization_binary']
     if not os.path.isabs(enfguard_binary):
         enfguard_binary = os.path.join(workspace_root, enfguard_binary)
+    
+    logger.log(f"Using visualization binary: {enfguard_binary}")
     
     cmd = [
         enfguard_binary,
@@ -267,9 +275,12 @@ def generate_normalized_mfotl(config, logger, workspace_root, script_dir):
     temp_file = normalized_file + FILE_EXT_TMP
     
     # Build enfguard command (same as JSON generation but without -json flag)
-    enfguard_binary = config['enfguard_binary']
+    # Use visualization binary for normalized MFOTL generation
+    enfguard_binary = config['visualization_binary']
     if not os.path.isabs(enfguard_binary):
         enfguard_binary = os.path.join(workspace_root, enfguard_binary)
+    
+    logger.log(f"Using visualization binary: {enfguard_binary}")
     
     cmd = [
         enfguard_binary,
@@ -326,6 +337,7 @@ def copy_partition_files(config, logger, workspace_root):
 
     This is used when visualization is disabled but partition execution is enabled.
     The partition files must already exist in a source directory.
+    Also copies signature files from source_dir/signatures/ if they exist.
 
     Args:
         config: Configuration dictionary
@@ -374,46 +386,71 @@ def copy_partition_files(config, logger, workspace_root):
             return False
 
     logger.log(f"✓ Copied {len(source_files)} partition files", LOG_LEVEL_SUCCESS)
+    
+    # Copy signature files if they exist
+    signatures_source = os.path.join(partition_source, 'signatures')
+    if os.path.exists(signatures_source) and os.path.isdir(signatures_source):
+        signatures_target = os.path.join(partition_dir, 'signatures')
+        os.makedirs(signatures_target, exist_ok=True)
+        
+        # Find all .sig files in signatures directory
+        sig_files = list(Path(signatures_source).glob('*.sig'))
+        
+        if sig_files:
+            for sig_file in sig_files:
+                target_sig = os.path.join(signatures_target, sig_file.name)
+                try:
+                    shutil.copy2(sig_file, target_sig)
+                except Exception as e:
+                    logger.log(f"✗ Failed to copy {sig_file.name}: {e}", LOG_LEVEL_ERROR)
+                    return False
+            
+            logger.log(f"✓ Copied {len(sig_files)} signature files", LOG_LEVEL_SUCCESS)
+        else:
+            logger.log("⚠ No signature files found in signatures/ subdirectory", LOG_LEVEL_WARNING)
+    else:
+        logger.log("⚠ No signatures/ subdirectory found in partition source", LOG_LEVEL_WARNING)
+    
     return True
 
 
-    # =============================================================================
-    # VISUALIZATION FUNCTIONS
-    # =============================================================================
+# =============================================================================
+# VISUALIZATION FUNCTIONS
+# =============================================================================
 
-    def run_visualization(config, logger, workspace_root, json_file):
-        """Run visualize_graph.py to generate partitions and graph."""
-        logger.log("Generating visualization and partitions...")
-        
-        mfotl_file = config['input']['mfotl']
-        output_dir = config['output']['directory']
-        
-        # Make output directory absolute if it's relative
-        if not os.path.isabs(output_dir):
-            output_dir = os.path.join(workspace_root, output_dir)
-        
-        output_html = DEFAULT_GRAPH_HTML
-        
-        # Build command
-        viz_script = os.path.join(workspace_root, DIR_VIZ, 'visualize_graph.py')
-        
-        cmd = [
-            sys.executable,  # Use current Python interpreter
-            viz_script,
-            json_file,
-            output_html,
-            '--output-dir', output_dir,
-            '--merge-strategy', config['visualization']['merge_strategy']
-        ]
-        
-        if config['visualization'].get('filter_polarity'):
-            cmd.append('--filter-polarity')
-        
-        if config['visualization'].get('max_merge_size') is not None:
-            cmd.extend(['--max-merge-size', str(config['visualization']['max_merge_size'])])
-        
-        if config['input'].get('mfotl'):
-            cmd.extend(['--mfotl', config['input']['mfotl']])
+def run_visualization(config, logger, workspace_root, json_file):
+    """Run visualize_graph.py to generate partitions and graph."""
+    logger.log("Generating visualization and partitions...")
+    
+    mfotl_file = config['input']['mfotl']
+    output_dir = config['output']['directory']
+    
+    # Make output directory absolute if it's relative
+    if not os.path.isabs(output_dir):
+        output_dir = os.path.join(workspace_root, output_dir)
+    
+    output_html = DEFAULT_GRAPH_HTML
+    
+    # Build command
+    viz_script = os.path.join(workspace_root, DIR_VIZ, 'visualize_graph.py')
+    
+    cmd = [
+        sys.executable,  # Use current Python interpreter
+        viz_script,
+        json_file,
+        output_html,
+        '--output-dir', output_dir,
+        '--merge-strategy', config['visualization']['merge_strategy']
+    ]
+    
+    if config['visualization'].get('filter_polarity'):
+        cmd.append('--filter-polarity')
+    
+    if config['visualization'].get('max_merge_size') is not None:
+        cmd.extend(['--max-merge-size', str(config['visualization']['max_merge_size'])])
+    
+    if config['input'].get('mfotl'):
+        cmd.extend(['--mfotl', config['input']['mfotl']])
         
         if config['input'].get('signature'):
             cmd.extend(['--sig', config['input']['signature']])
@@ -499,19 +536,50 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir, log_fi
     # Build command
     runner_script = os.path.join(script_dir, 'utils', 'run_partition_enfguard.py')
     
+    # Check if signatures directory exists (for per-partition signatures)
+    # By default, use full signature unless per-partition signatures are explicitly enabled
+    use_per_partition_sigs = config['partition_execution'].get('use_per_partition_signatures', False)
+    signatures_dir = os.path.join(partition_dir, 'signatures')
+    use_per_partition_sigs = (
+        use_per_partition_sigs and
+        os.path.exists(signatures_dir) and 
+        os.path.isdir(signatures_dir)
+    )
+    
+    if use_per_partition_sigs:
+        # Use signatures directory for per-partition signatures
+        sig_arg = signatures_dir
+        logger.log(f"Using per-partition signatures from: {signatures_dir}")
+    else:
+        # Use single signature file for all partitions
+        sig_arg = config['input']['signature']
+        logger.log(f"Using full signature file: {sig_arg}")
+    
+    # Get enforcement binary (make absolute if relative)
+    enforcement_binary = config['enforcement_binary']
+    if not os.path.isabs(enforcement_binary):
+        enforcement_binary = os.path.join(workspace_root, enforcement_binary)
+    
+    logger.log(f"Using enforcement binary: {enforcement_binary}")
+    
     cmd = [
         sys.executable,
         runner_script,
         partition_dir,
-        '-sig', config['input']['signature'],
+        '-sig', sig_arg,
         '-log', log_file,
         '-func', config['input']['functions'],
-        '-o', partition_outputs_dir  # Add output directory for saving outputs and diffs
+        '-o', partition_outputs_dir,  # Add output directory for saving outputs and diffs
+        '-bin', enforcement_binary  # Pass enforcement binary
     ]
     
     # Always use input.mfotl as reference for timing comparison
     if config['input'].get('mfotl'):
         cmd.extend(['-ref', config['input']['mfotl']])
+        
+        # If using per-partition signatures, specify reference signature from config
+        if use_per_partition_sigs:
+            cmd.extend(['-ref-sig', config['input']['signature']])
     
     if config['partition_execution'].get('timeout'):
         cmd.extend(['-t', str(config['partition_execution']['timeout'])])

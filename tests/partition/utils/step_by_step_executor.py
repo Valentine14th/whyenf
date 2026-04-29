@@ -133,7 +133,8 @@ def run_enfguard_step_by_step(
     func_file: str,
     label: bool = False,
     timeout: Optional[int] = None,
-    output_dir: Optional[str] = None
+    output_dir: Optional[str] = None,
+    binary: str = './enfguard'
 ) -> Dict:
     """
     Run enfguard step-by-step in interactive mode, measuring time at each timepoint.
@@ -147,6 +148,7 @@ def run_enfguard_step_by_step(
         label: Enable label output
         timeout: Optional timeout in seconds (total, not per step)
         output_dir: Optional directory (currently unused - for future extension)
+        binary: Path to enfguard binary (default: './enfguard')
         
     Returns:
         Dictionary with step-by-step results
@@ -173,7 +175,7 @@ def run_enfguard_step_by_step(
     
     # Build enfguard command (without -log flag for interactive mode)
     cmd = [
-        "./enfguard",
+        binary,
         "-sig", sig_file,
         "-formula", mfotl_file,
         "-func", func_file

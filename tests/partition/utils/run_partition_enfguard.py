@@ -171,6 +171,40 @@ def create_result_dict(
     }
 
 
+def resolve_signature_file(sig_path: str, partition_file: Path) -> str:
+    """
+    Resolve the signature file for a given partition.
+    
+    If sig_path is a directory, looks for a .sig file matching the partition name.
+    If sig_path is a file, returns it as-is.
+    
+    Args:
+        sig_path: Path to signature file or directory containing signatures
+        partition_file: Path object for the partition MFOTL file
+        
+    Returns:
+        Path to the signature file to use
+        
+    Raises:
+        FileNotFoundError: If signature file cannot be found
+    """
+    if os.path.isdir(sig_path):
+        # sig_path is a directory, look for matching signature
+        partition_basename = partition_file.stem  # filename without extension
+        sig_file = os.path.join(sig_path, f"{partition_basename}.sig")
+        
+        if not os.path.isfile(sig_file):
+            raise FileNotFoundError(
+                f"Signature file not found for partition {partition_file.name}: {sig_file}"
+            )
+        return sig_file
+    elif os.path.isfile(sig_path):
+        # sig_path is a file, use it directly
+        return sig_path
+    else:
+        raise FileNotFoundError(f"Signature path does not exist: {sig_path}")
+
+
 # =============================================================================
 # CORE EXECUTION FUNCTIONS
 # =============================================================================
@@ -181,7 +215,8 @@ def run_enfguard_command(
     log_file: str, 
     func_file: str,
     label: bool = False,
-    timeout: Optional[int] = None
+    timeout: Optional[int] = None,
+    binary: str = './enfguard'
 ) -> Tuple[int, str, str, float]:
     """
     Run enfguard on a single MFOTL file.
@@ -193,12 +228,13 @@ def run_enfguard_command(
         func_file: Path to functions file
         label: Enable label output
         timeout: Optional timeout in seconds
+        binary: Path to enfguard binary
         
     Returns:
         Tuple of (exit_code, stdout, stderr, elapsed_time)
     """
     cmd = [
-        "./enfguard",
+        binary,
         "-sig", sig_file,
         "-formula", mfotl_file,
         "-log", log_file,
@@ -497,6 +533,7 @@ def execute_enfguard_runs(
     output_subdir: Optional[str],
     step_by_step: bool,
     repeat_runs: int,
+    binary: str = './enfguard',
     is_reference: bool = False
 ) -> Tuple[Optional[str], Optional[Dict], Optional[Dict], List[Dict]]:
     """
@@ -513,6 +550,7 @@ def execute_enfguard_runs(
         output_subdir: Optional directory to save output
         step_by_step: Enable step-by-step mode
         repeat_runs: Number of repeat runs
+        binary: Path to enfguard binary
         is_reference: Whether this is reference execution
         
     Returns:
@@ -536,7 +574,8 @@ def execute_enfguard_runs(
             try:
                 step_data = run_enfguard_step_by_step(
                     mfotl_file, sig_file, log_file, func_file,
-                    label=label, timeout=timeout, output_dir=output_subdir
+                    label=label, timeout=timeout, output_dir=output_subdir,
+                    binary=binary
                 )
                 step_by_step_runs.append(step_data)
                 time_runs.append(step_data.get('total_time', 0.0))
@@ -552,7 +591,7 @@ def execute_enfguard_runs(
         else:
             # Batch execution
             exit_code, stdout, stderr, elapsed_time = run_enfguard_command(
-                mfotl_file, sig_file, log_file, func_file, label, timeout
+                mfotl_file, sig_file, log_file, func_file, label, timeout, binary
             )
             
             if exit_code != 0:
@@ -645,7 +684,8 @@ def run_reference_enfguard(
     timeout: Optional[int],
     output_subdir: Optional[str],
     step_by_step: bool = False,
-    repeat_runs: int = 1
+    repeat_runs: int = 1,
+    binary: str = './enfguard'
 ) -> Tuple[Optional[str], Optional[Dict]]:
     """
     Run enfguard on reference MFOTL file.
@@ -660,6 +700,7 @@ def run_reference_enfguard(
         output_subdir: Optional directory to save output
         step_by_step: Enable step-by-step execution mode
         repeat_runs: Number of times to run for timing measurements
+        binary: Path to enfguard binary
         
     Returns:
         Tuple of (reference_output, reference_time_stats) or (None, None) if failed
@@ -672,7 +713,7 @@ def run_reference_enfguard(
         # Execute runs
         stdout_result, time_stats, aggregated_step_timing, step_runs = execute_enfguard_runs(
             "reference", reference_mfotl, sig_file, log_file, func_file,
-            label, timeout, output_subdir, step_by_step, repeat_runs, is_reference=True
+            label, timeout, output_subdir, step_by_step, repeat_runs, binary, is_reference=True
         )
         
         if stdout_result is None:
@@ -698,7 +739,7 @@ def run_reference_enfguard(
 
 def run_partition_enfguard(
     mfotl_file: Path,
-    sig_file: str,
+    sig_path: str,
     log_file: str,
     func_file: str,
     label: bool,
@@ -707,14 +748,15 @@ def run_partition_enfguard(
     output_subdir: Optional[str],
     diff_subdir: Optional[str],
     step_by_step: bool = False,
-    repeat_runs: int = 1
+    repeat_runs: int = 1,
+    binary: str = './enfguard'
 ) -> Dict:
     """
     Run enfguard on a single partition file and compare with reference.
     
     Args:
         mfotl_file: Path to partition MFOTL file
-        sig_file: Path to signature file
+        sig_path: Path to signature file or directory containing per-partition signatures
         log_file: Path to log file
         func_file: Path to functions file
         label: Enable label output
@@ -724,6 +766,7 @@ def run_partition_enfguard(
         diff_subdir: Optional directory to save diffs
         step_by_step: If True, also collect per-timestamp timing information
         repeat_runs: Number of times to run for timing measurements
+        binary: Path to enfguard binary
         
     Returns:
         Dictionary with result information including timing statistics
@@ -732,10 +775,13 @@ def run_partition_enfguard(
     print(f"\n[{partition_name}] Running enfguard...")
     
     try:
+        # Resolve signature file for this partition
+        sig_file = resolve_signature_file(sig_path, mfotl_file)
+        
         # Execute runs
         stdout_result, time_stats, aggregated_step_timing, step_runs = execute_enfguard_runs(
             partition_name, str(mfotl_file), sig_file, log_file, func_file,
-            label, timeout, output_subdir, step_by_step, repeat_runs
+            label, timeout, output_subdir, step_by_step, repeat_runs, binary
         )
         
         if stdout_result is None:
@@ -773,7 +819,13 @@ def run_partition_enfguard(
             step_by_step_timing=aggregated_step_timing,
             blocks_json=blocks_json_path
         )
-        
+    
+    except FileNotFoundError as e:
+        # Signature file not found
+        print(f"[{partition_name}] ✗ ERROR: {e}")
+        return create_result_dict(
+            partition_name, 'ERROR', -1, calculate_time_stats([])
+        )
     except Exception as e:
         print(f"[{partition_name}] ✗ EXCEPTION: {e}")
         return create_result_dict(
@@ -1131,14 +1183,16 @@ def run_enfguard_on_partitions(
     label: bool = False,
     json_summary: Optional[str] = None,
     step_by_step: bool = False,
-    repeat_runs: int = 1
+    repeat_runs: int = 1,
+    ref_sig_file: Optional[str] = None,
+    binary: str = './enfguard'
 ) -> int:
     """
     Run enfguard on all MFOTL files in the given directory.
     
     Args:
         mfotl_dir: Directory containing partition MFOTL files
-        sig_file: Path to signature file
+        sig_file: Path to signature file or directory containing per-partition .sig files
         log_file: Path to log file
         func_file: Path to function file
         reference_mfotl: Optional reference MFOTL file to compare against
@@ -1148,6 +1202,8 @@ def run_enfguard_on_partitions(
         json_summary: Optional path to save JSON summary of results
         step_by_step: Optional flag to enable step-by-step execution mode
         repeat_runs: Number of times to run each partition for timing measurements
+        ref_sig_file: Optional signature file specifically for reference formula (if not provided, uses sig_file)
+        binary: Path to enfguard binary
     
     Returns:
         0 if all partitions succeeded, 1 otherwise
@@ -1158,13 +1214,20 @@ def run_enfguard_on_partitions(
     if output_dir:
         output_subdir, diff_subdir = setup_output_directories(output_dir)
     
+    # Determine signature file for reference
+    reference_sig_file = ref_sig_file if ref_sig_file else sig_file
+    if os.path.isdir(reference_sig_file) and reference_mfotl:
+        # reference_sig_file is a directory but we need a specific file for reference
+        print(f"Error: Reference signature is a directory but ref_sig_file not provided")
+        return 1
+    
     # Run reference file first if provided
     reference_output = None
     reference_time = None
     if reference_mfotl:
         reference_output, reference_time = run_reference_enfguard(
-            reference_mfotl, sig_file, log_file, func_file, 
-            label, timeout, output_subdir, step_by_step, repeat_runs
+            reference_mfotl, reference_sig_file, log_file, func_file, 
+            label, timeout, output_subdir, step_by_step, repeat_runs, binary
         )
     
     # Find all .mfotl files in the directory
@@ -1176,7 +1239,10 @@ def run_enfguard_on_partitions(
     
     mode_str = "STEP-BY-STEP" if step_by_step else "STANDARD"
     print(f"RUNNING PARTITIONS ({len(mfotl_files)} files) - {mode_str} MODE")
-    print(f"  Signature: {sig_file}")
+    if os.path.isdir(sig_file):
+        print(f"  Signatures: {sig_file} (per-partition)")
+    else:
+        print(f"  Signature: {sig_file}")
     print(f"  Log: {log_file}")
     print(f"  Functions: {func_file}")
     if repeat_runs > 1:
@@ -1193,7 +1259,8 @@ def run_enfguard_on_partitions(
             label, timeout, reference_output,
             output_subdir, diff_subdir,
             step_by_step=step_by_step,
-            repeat_runs=repeat_runs
+            repeat_runs=repeat_runs,
+            binary=binary
         )
         results.append(result)
     
@@ -1229,11 +1296,14 @@ if __name__ == "__main__":
         formatter_class=argparse.RawTextHelpFormatter
     )
     parser.add_argument('mfotl_dir', help='Directory containing partition MFOTL files')
-    parser.add_argument('-sig', '--signature', required=True, help='Path to signature file')
+    parser.add_argument('-sig', '--signature', required=True, 
+                       help='Path to signature file or directory containing per-partition .sig files')
     parser.add_argument('-log', '--log', required=True, help='Path to log file')
     parser.add_argument('-func', '--functions', required=True, help='Path to functions file')
     parser.add_argument('-ref', '--reference', default=None,
                        help='Reference MFOTL file to compare timing against (optional)')
+    parser.add_argument('-ref-sig', '--reference-signature', default=None,
+                       help='Signature file for reference formula (optional, uses -sig if not provided)')
     parser.add_argument('-t', '--timeout', type=int, default=None,
                        help='Timeout in seconds for each partition (optional)')
     parser.add_argument('-o', '--output-dir', default=None,
@@ -1246,6 +1316,8 @@ if __name__ == "__main__":
                        help='Run enforcement in step-by-step mode, measuring time at each timestamp (optional)')
     parser.add_argument('-r', '--repeat', type=int, default=1,
                        help='Number of times to run each partition for timing measurements (default: 1)')
+    parser.add_argument('-bin', '--binary', default='./enfguard',
+                       help='Path to enfguard binary (default: ./enfguard)')
     
     args = parser.parse_args()
     
@@ -1254,8 +1326,8 @@ if __name__ == "__main__":
         print(f"Error: {args.mfotl_dir} is not a directory")
         sys.exit(1)
     
-    if not os.path.isfile(args.signature):
-        print(f"Error: Signature file not found: {args.signature}")
+    if not os.path.isfile(args.signature) and not os.path.isdir(args.signature):
+        print(f"Error: Signature file or directory not found: {args.signature}")
         sys.exit(1)
     
     if not os.path.isfile(args.log):
@@ -1281,6 +1353,8 @@ if __name__ == "__main__":
         args.label,
         args.json_summary,
         args.step_by_step,
-        args.repeat
+        args.repeat,
+        args.reference_signature,
+        args.binary
     )
     sys.exit(exit_code)
