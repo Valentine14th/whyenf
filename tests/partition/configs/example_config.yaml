@@ -4,6 +4,12 @@
 # Workflow name (used for logging/output identification)
 name: "minitwit_gdpr_4_test"
 
+# Enfguard binary configuration (optional)
+# By default, uses 'enfguard' (resolved relative to workspace root)
+# You can specify different binaries for visualization and enforcement
+# visualization_binary: "enfguard"        # For JSON/MFOTL generation
+# enforcement_binary: "enfflash/bin/enfguard.exe"  # For partition execution
+
 # Input files
 input:
   # MFOTL formula file
@@ -75,3 +81,8 @@ partition_execution:
   # Enable step-by-step execution mode: ingest log file one timestamp at a time 
   # and measure enforcement time per step (generates timing plot automatically)
   step_by_step: false
+  
+  # Force using per-partition signatures insetad of full one
+  # use_per_partition_signatures: false
+
+# Note: Paths are relative to workspace root unless absolute
