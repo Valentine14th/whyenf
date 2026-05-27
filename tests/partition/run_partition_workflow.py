@@ -11,9 +11,21 @@ import shutil
 import sys
 import subprocess
 import time
-import yaml
 from datetime import datetime
 from pathlib import Path
+
+try:
+    import yaml
+except ModuleNotFoundError as exc:
+    if exc.name != 'yaml':
+        raise
+    print(
+        "Missing Python dependency: PyYAML\n"
+        f"Interpreter: {sys.executable}\n"
+        f"Install it with: {sys.executable} -m pip install PyYAML",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 # CONFIGURATION CONSTANTS
 
@@ -165,6 +177,14 @@ def load_config(config_file):
     
     if config['partition_execution'].get('repeat_runs') is None:
         config['partition_execution']['repeat_runs'] = 1
+    
+    if config['partition_execution'].get('filter_log_by_signature') is None:
+        config['partition_execution']['filter_log_by_signature'] = False
+
+    # Set defaults for visualization behavior
+    # When False, singleton (one-rule) components are never merged with other singleton components.
+    if config['visualization'].get('merge_single_rule_components') is None:
+        config['visualization']['merge_single_rule_components'] = True
     
     # Set defaults for enfguard binaries (relative to workspace root)
     # Support both old single binary config and new separate binary config
@@ -448,6 +468,9 @@ def run_visualization(config, logger, workspace_root, json_file):
     
     if config['visualization'].get('max_merge_size') is not None:
         cmd.extend(['--max-merge-size', str(config['visualization']['max_merge_size'])])
+
+    if not config['visualization'].get('merge_single_rule_components', True):
+        cmd.append('--keep-single-rule-components-separate')
     
     if config['input'].get('mfotl'):
         cmd.extend(['--mfotl', config['input']['mfotl']])
@@ -537,14 +560,12 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir, log_fi
     runner_script = os.path.join(script_dir, 'utils', 'run_partition_enfguard.py')
     
     # Check if signatures directory exists (for per-partition signatures)
-    # By default, use full signature unless per-partition signatures are explicitly enabled
+    # Use per-partition sigs when explicitly enabled OR when filter_log_by_signature is true
     use_per_partition_sigs = config['partition_execution'].get('use_per_partition_signatures', False)
+    filter_log_by_sig = config['partition_execution'].get('filter_log_by_signature', False)
     signatures_dir = os.path.join(partition_dir, 'signatures')
-    use_per_partition_sigs = (
-        use_per_partition_sigs and
-        os.path.exists(signatures_dir) and 
-        os.path.isdir(signatures_dir)
-    )
+    has_signatures_dir = os.path.exists(signatures_dir) and os.path.isdir(signatures_dir)
+    use_per_partition_sigs = (use_per_partition_sigs or filter_log_by_sig) and has_signatures_dir
     
     if use_per_partition_sigs:
         # Use signatures directory for per-partition signatures
@@ -594,6 +615,11 @@ def run_partition_enforcement(config, logger, workspace_root, script_dir, log_fi
     # Add repeat runs if specified
     if config['partition_execution'].get('repeat_runs'):
         cmd.extend(['-r', str(config['partition_execution']['repeat_runs'])])
+    
+    # Add filter-log flag if enabled
+    # (enforcement already uses per-partition sigs when filter_log_by_sig and has_signatures_dir)
+    if filter_log_by_sig:
+        cmd.append('--filter-log')
     
     # Add JSON summary argument (always enabled with fixed filename in log subdirectory)
     enforcement_results_file = os.path.join(log_output_dir, DEFAULT_ENFORCEMENT_RESULTS)

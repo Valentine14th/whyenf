@@ -211,7 +211,7 @@ def run_enfguard_step_by_step(
     
     try:
         # Wait for enfguard to be ready before starting timing
-        time.sleep(10) 
+        time.sleep(3) 
         
         # Feed log lines one by one and measure timing
         for i, (line, timestamp) in enumerate(zip(log_lines, timestamps)):           

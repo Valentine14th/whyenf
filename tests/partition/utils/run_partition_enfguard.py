@@ -4,10 +4,12 @@ Run enfguard on all partition MFOTL files in a directory.
 """
 
 import os
+import re
 import sys
 import argparse
 import json
 import subprocess
+import tempfile
 import time
 import difflib
 import shutil
@@ -203,6 +205,156 @@ def resolve_signature_file(sig_path: str, partition_file: Path) -> str:
         return sig_path
     else:
         raise FileNotFoundError(f"Signature path does not exist: {sig_path}")
+
+
+def parse_sig_event_names(sig_file: str) -> set:
+    """
+    Parse event (predicate) names from a .sig signature file.
+
+    Each non-comment line is expected to start with:
+        EventName(param: type, ...) [+/-]
+
+    Returns:
+        Set of event name strings.
+    """
+    event_names = set()
+    with open(sig_file, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            m = re.match(r"([A-Za-z_][A-Za-z0-9_']*)", line)
+            if m:
+                event_names.add(m.group(1))
+    return event_names
+
+
+def _extract_events_from_str(events_str: str) -> list:
+    """
+    Extract (name, full_token) pairs from a space-separated event string.
+
+    Handles quoted-string arguments (double-quoted only) so that a ')' inside
+    a string literal does not close the argument list prematurely.
+
+    Returns:
+        List of (event_name, full_token) tuples, e.g.:
+            [("Collect", 'Collect(1,1,1,"service")'), ...]
+    """
+    events = []
+    i = 0
+    n = len(events_str)
+
+    while i < n:
+        # Skip whitespace
+        while i < n and events_str[i].isspace():
+            i += 1
+        if i >= n:
+            break
+
+        # Match identifier
+        m = re.match(r"([A-Za-z_][A-Za-z0-9_']*)", events_str[i:])
+        if not m:
+            i += 1
+            continue
+
+        name = m.group(1)
+        j = i + len(name)
+
+        # Skip whitespace before '('
+        while j < n and events_str[j].isspace():
+            j += 1
+
+        if j >= n or events_str[j] != '(':
+            i = j if j > i else i + 1
+            continue
+
+        # Find balanced closing ')' while respecting double-quoted strings
+        depth = 0
+        k = j
+        in_str = False
+        while k < n:
+            c = events_str[k]
+            if in_str:
+                if c == '"':
+                    in_str = False
+            else:
+                if c == '"':
+                    in_str = True
+                elif c == '(':
+                    depth += 1
+                elif c == ')':
+                    depth -= 1
+                    if depth == 0:
+                        break
+            k += 1
+
+        full_token = events_str[i:k + 1]
+        events.append((name, full_token))
+        i = k + 1
+
+    return events
+
+
+def filter_log_by_events(log_file: str, event_names: set) -> str:
+    """
+    Produce a filtered copy of *log_file* that contains only events whose
+    names appear in *event_names*.
+
+    Each log line has the form::
+
+        @timestamp event1(args) event2(args) ... ;
+
+    Timepoints with no matching events are kept as empty timepoints
+    (``@timestamp ;``) to preserve the temporal structure.
+
+    Args:
+        log_file: Path to the original log file.
+        event_names: Set of event names to keep.
+
+    Returns:
+        Path to a temporary file containing the filtered log.  The caller is
+        responsible for deleting the file when it is no longer needed.
+    """
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix='.log', prefix='filtered_')
+    try:
+        with os.fdopen(tmp_fd, 'w') as out_f, open(log_file, 'r') as in_f:
+            for line in in_f:
+                stripped = line.rstrip('\n').rstrip()
+                if not stripped:
+                    out_f.write(line)
+                    continue
+
+                # Match "@timestamp  <events>  ;"
+                m = re.match(r'^(@\S+)\s*(.*?)\s*$', stripped)
+                if not m:
+                    out_f.write(line)
+                    continue
+
+                ts = m.group(1)
+                rest = m.group(2)
+
+                # Strip trailing semicolon from the events portion
+                if rest.endswith(';'):
+                    rest = rest[:-1].rstrip()
+
+                if not rest:
+                    # Already an empty timepoint — keep as is
+                    out_f.write(f"{ts};\n")
+                    continue
+
+                event_tokens = _extract_events_from_str(rest)
+                # Always keep tick() and other timing meta-events regardless of signature
+                kept = [tok for name, tok in event_tokens if name in event_names or name == 'tick']
+
+                if kept:
+                    out_f.write(f"{ts} {' '.join(kept)};\n")
+                else:
+                    out_f.write(f"{ts};\n")
+    except Exception:
+        os.unlink(tmp_path)
+        raise
+
+    return tmp_path
 
 
 # =============================================================================
@@ -749,7 +901,9 @@ def run_partition_enfguard(
     diff_subdir: Optional[str],
     step_by_step: bool = False,
     repeat_runs: int = 1,
-    binary: str = './enfguard'
+    binary: str = './enfguard',
+    filter_log: bool = False,
+    filter_sig_path: Optional[str] = None
 ) -> Dict:
     """
     Run enfguard on a single partition file and compare with reference.
@@ -767,6 +921,10 @@ def run_partition_enfguard(
         step_by_step: If True, also collect per-timestamp timing information
         repeat_runs: Number of times to run for timing measurements
         binary: Path to enfguard binary
+        filter_log: If True, filter the log to only events in this partition's signature
+        filter_sig_path: Signature file/directory used only for log filtering (overrides sig_path
+            for that purpose). Useful when enforcement uses the full sig but filtering should
+            use per-partition sigs.
         
     Returns:
         Dictionary with result information including timing statistics
@@ -774,13 +932,25 @@ def run_partition_enfguard(
     partition_name = mfotl_file.name
     print(f"\n[{partition_name}] Running enfguard...")
     
+    filtered_log_path = None
     try:
         # Resolve signature file for this partition
         sig_file = resolve_signature_file(sig_path, mfotl_file)
+
+        # Optionally filter the log to only events present in this partition's signature
+        effective_log = log_file
+        if filter_log:
+            # Use filter_sig_path (if provided) to resolve the per-partition sig for filtering,
+            # so that enforcement can still use the full sig while filtering uses the small one.
+            filter_sig = resolve_signature_file(filter_sig_path, mfotl_file) if filter_sig_path else sig_file
+            event_names = parse_sig_event_names(filter_sig)
+            filtered_log_path = filter_log_by_events(log_file, event_names)
+            effective_log = filtered_log_path
+            print(f"[{partition_name}] Filtering log to {len(event_names)} event type(s): {', '.join(sorted(event_names))}")
         
         # Execute runs
         stdout_result, time_stats, aggregated_step_timing, step_runs = execute_enfguard_runs(
-            partition_name, str(mfotl_file), sig_file, log_file, func_file,
+            partition_name, str(mfotl_file), sig_file, effective_log, func_file,
             label, timeout, output_subdir, step_by_step, repeat_runs, binary
         )
         
@@ -831,6 +1001,10 @@ def run_partition_enfguard(
         return create_result_dict(
             partition_name, 'EXCEPTION', -1, calculate_time_stats([])
         )
+    finally:
+        # Clean up temporary filtered log file
+        if filtered_log_path and os.path.exists(filtered_log_path):
+            os.unlink(filtered_log_path)
 
 
 def combine_and_compare_partitions(
@@ -1185,7 +1359,9 @@ def run_enfguard_on_partitions(
     step_by_step: bool = False,
     repeat_runs: int = 1,
     ref_sig_file: Optional[str] = None,
-    binary: str = './enfguard'
+    binary: str = './enfguard',
+    filter_log: bool = False,
+    filter_sig_path: Optional[str] = None
 ) -> int:
     """
     Run enfguard on all MFOTL files in the given directory.
@@ -1204,6 +1380,10 @@ def run_enfguard_on_partitions(
         repeat_runs: Number of times to run each partition for timing measurements
         ref_sig_file: Optional signature file specifically for reference formula (if not provided, uses sig_file)
         binary: Path to enfguard binary
+        filter_log: If True, filter the log per partition to only events in its signature
+        filter_sig_path: Signature file/directory used only for log filtering (overrides sig_file for
+            that purpose). When provided with a signatures directory, each partition is filtered to only
+            its own events while enforcement still uses sig_file.
     
     Returns:
         0 if all partitions succeeded, 1 otherwise
@@ -1250,6 +1430,9 @@ def run_enfguard_on_partitions(
     if timeout:
         timeout_scope = "per step" if step_by_step else "per partition"
         print(f"  Timeout: {timeout}s {timeout_scope}")
+    if filter_log:
+        src = filter_sig_path if filter_sig_path else sig_file
+        print(f"  Log filtering: enabled ({src})")
     
     # Run enfguard on all partition files
     results = []
@@ -1260,7 +1443,9 @@ def run_enfguard_on_partitions(
             output_subdir, diff_subdir,
             step_by_step=step_by_step,
             repeat_runs=repeat_runs,
-            binary=binary
+            binary=binary,
+            filter_log=filter_log,
+            filter_sig_path=filter_sig_path
         )
         results.append(result)
     
@@ -1318,6 +1503,12 @@ if __name__ == "__main__":
                        help='Number of times to run each partition for timing measurements (default: 1)')
     parser.add_argument('-bin', '--binary', default='./enfguard',
                        help='Path to enfguard binary (default: ./enfguard)')
+    parser.add_argument('--filter-log', action='store_true',
+                       help='Filter the log per partition to only events present in its signature (optional)')
+    parser.add_argument('--filter-sig', default=None,
+                       help='Signature file or directory used only for log filtering (overrides -sig for '
+                            'that purpose). Allows enforcement to use the full sig while filtering uses '
+                            'per-partition sigs.')
     
     args = parser.parse_args()
     
@@ -1355,6 +1546,8 @@ if __name__ == "__main__":
         args.step_by_step,
         args.repeat,
         args.reference_signature,
-        args.binary
+        args.binary,
+        args.filter_log,
+        args.filter_sig
     )
     sys.exit(exit_code)

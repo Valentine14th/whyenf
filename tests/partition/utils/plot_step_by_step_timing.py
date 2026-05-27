@@ -195,6 +195,9 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
     # Track outlier run counts
     total_outlier_runs_removed = 0
     
+    # Track partition info for custom legend
+    partition_legend_info = []  # List of (name, color) tuples
+    
     # Define marker styles for different block types
     marker_styles = {
         ('reactive', True): {'marker': 'o', 'label_suffix': ' (R+A)'},      # Reactive with action: circle
@@ -238,6 +241,9 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
             print(f"  {partition_name}: Warning - no steps found, skipping partition")
             continue
         
+        
+        # Store partition info for custom legend
+        partition_legend_info.append((partition_name, colors[idx]))
         total_time = partition['step_by_step_timing']['total_time_stats']['mean']
         
         total_times.append(total_time)
@@ -326,12 +332,12 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
                 # Apply smoothing to this block type's data
                 times_to_plot = moving_average(grp['times'], SMOOTHING_WINDOW) if should_smooth else grp['times']
                 
+                # Don't add label here - we'll create custom legend entries
                 ax.plot(grp['timepoints'], times_to_plot,
                         linewidth=1.5,
                         color=colors[idx],
                         alpha=0.8,
                         linestyle=ls,
-                        label=f"{partition_name} ({bt})",
                         zorder=1)
                 if has_variance:
                     times_arr = np.array(grp['times'])
@@ -409,16 +415,12 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
                     marker = style.get('marker', 'x')
                     facecolor = style.get('facecolor', 'black')
                     
-                    label = None
-                    if block_key == list(block_groups.keys())[0]:
-                        label = 'Reference (full formula)'
-                    
+                    # Don't add label here - we'll create custom legend entry
                     ax.scatter(group_data['timepoints'], group_data['times'],
                               marker=marker, s=40,
                               facecolor=facecolor,
                               edgecolor='black',
                               linewidth=1.5,
-                              label=label,
                               alpha=0.8,
                               zorder=11)
                 
@@ -448,12 +450,12 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
                     # Apply smoothing to reference block type data
                     times_to_plot = moving_average(grp['times'], SMOOTHING_WINDOW) if should_smooth else grp['times']
                     
+                    # Don't add label here - we'll create custom legend entry
                     ax.plot(grp['timepoints'], times_to_plot,
                             linewidth=1.5,
                             linestyle=ls,
                             color='black',
                             alpha=0.7,
-                            label=f"Reference ({bt})",
                             zorder=10)
                     if has_variance:
                         stds_to_plot = moving_average(grp['stds'], SMOOTHING_WINDOW) if should_smooth else grp['stds']
@@ -528,8 +530,20 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
     ax.set_title(title, fontsize=14, fontweight='bold')
     ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
     
-    # Create main legend for partitions
-    main_legend = ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=9, title='Partitions')
+    # Create main legend for partitions with custom entries (lines only, no markers)
+    partition_legend_elements = [
+        Line2D([0], [0], color=color, linewidth=2, label=name)
+        for name, color in partition_legend_info
+    ]
+    
+    # Add reference to legend if it exists
+    if reference_timing and reference_timing.get('steps'):
+        partition_legend_elements.append(
+            Line2D([0], [0], color='black', linewidth=2, linestyle='--', label='Reference (full formula)')
+        )
+    
+    main_legend = ax.legend(handles=partition_legend_elements, bbox_to_anchor=(1.05, 1), 
+                           loc='upper left', fontsize=9, title='Partitions')
     ax.add_artist(main_legend)
     
     # Add block type legend below main legend

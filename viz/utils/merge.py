@@ -99,7 +99,13 @@ def _process_partition_group(group_anchors, frozen_nodes, sccs_all, partition_la
     return key_idx, all_nodes, label
 
 
-def merge_by_descendants(partitions, partition_labels, sccs_all, max_merge_size=None):
+def merge_by_descendants(
+    partitions,
+    partition_labels,
+    sccs_all,
+    max_merge_size=None,
+    merge_single_rule_components=True,
+):
     """Merge partitions with identical descendant nodes (excluding anchor nodes).
     
     This strategy groups partitions by comparing only their non-anchor nodes.
@@ -110,6 +116,7 @@ def merge_by_descendants(partitions, partition_labels, sccs_all, max_merge_size=
         partition_labels: Dict mapping anchor SCC index to label
         sccs_all: List of all SCCs
         max_merge_size: Maximum number of partitions to merge together (None for unlimited)
+        merge_single_rule_components: Whether one-rule components can be merged together.
     
     Returns:
         - merged_partitions: Dict of merged partitions
@@ -131,12 +138,29 @@ def merge_by_descendants(partitions, partition_labels, sccs_all, max_merge_size=
     # Create merged partitions and labels
     merged_partitions = {}
     merged_labels = {}
-    leaf_only_anchors = []  # Collect all partitions with only anchor nodes (no descendants)
+    leaf_only_anchors = []  # Collect mergeable leaf-only partitions (no descendants)
     
     for frozen_nodes, anchor_indices in node_set_to_anchors.items():
-        # Bundle all partitions with 0 non-leaf nodes into one
+        # Partitions with 0 non-leaf nodes are leaf-only components.
         if len(frozen_nodes) == 0:
-            leaf_only_anchors.extend(anchor_indices)
+            if merge_single_rule_components:
+                leaf_only_anchors.extend(anchor_indices)
+            else:
+                # Keep single-rule components as standalone partitions.
+                for idx in anchor_indices:
+                    if len(sccs_all[idx]) == 1:
+                        key_idx, all_nodes, label = _process_partition_group(
+                            [idx],
+                            frozenset(),
+                            sccs_all,
+                            partition_labels,
+                            is_leaf_only=True,
+                        )
+                        merged_partitions[key_idx] = all_nodes
+                        merged_labels[key_idx] = label
+                    else:
+                        # Multi-rule SCC leaves are still mergeable by strategy.
+                        leaf_only_anchors.append(idx)
             continue
         
         # Split into balanced groups if needed
@@ -168,7 +192,13 @@ def merge_by_descendants(partitions, partition_labels, sccs_all, max_merge_size=
     return merged_partitions, merged_labels
 
 
-def no_merge(partitions, partition_labels, sccs_all, max_merge_size=None):
+def no_merge(
+    partitions,
+    partition_labels,
+    sccs_all,
+    max_merge_size=None,
+    merge_single_rule_components=True,
+):
     """No merging - keep all partitions separate.
     
     Args:
@@ -176,6 +206,7 @@ def no_merge(partitions, partition_labels, sccs_all, max_merge_size=None):
         partition_labels: Dict mapping anchor SCC index to label
         sccs_all: List of all SCCs
         max_merge_size: Maximum number of partitions to merge together (unused in this strategy)
+        merge_single_rule_components: Unused for this strategy.
     
     Returns:
         - partitions: Dict of partitions (unchanged)
@@ -197,7 +228,14 @@ MERGE_STRATEGIES = {
 }
 
 
-def apply_merge_strategy(partitions, partition_labels, sccs_all, strategy='by_descendants', max_merge_size=None):
+def apply_merge_strategy(
+    partitions,
+    partition_labels,
+    sccs_all,
+    strategy='by_descendants',
+    max_merge_size=None,
+    merge_single_rule_components=True,
+):
     """Apply the specified merge strategy.
     
     Args:
@@ -206,6 +244,8 @@ def apply_merge_strategy(partitions, partition_labels, sccs_all, strategy='by_de
         sccs_all: List of all SCCs
         strategy: Name of the strategy to use ('by_descendants' or 'no_merge')
         max_merge_size: Maximum number of partitions to merge together (None for unlimited)
+        merge_single_rule_components: Whether one-rule components can be merged when
+            strategy permits merging.
     
     Returns:
         - merged_partitions: Dict of merged partitions
@@ -220,6 +260,12 @@ def apply_merge_strategy(partitions, partition_labels, sccs_all, strategy='by_de
         raise ValueError(f"Unknown merge strategy '{strategy}'. Available: {available}")
     
     strategy_info = MERGE_STRATEGIES[strategy]
-    merged_partitions, merged_labels = strategy_info['function'](partitions, partition_labels, sccs_all, max_merge_size)
+    merged_partitions, merged_labels = strategy_info['function'](
+        partitions,
+        partition_labels,
+        sccs_all,
+        max_merge_size,
+        merge_single_rule_components,
+    )
     
     return merged_partitions, merged_labels, strategy_info['display_name']

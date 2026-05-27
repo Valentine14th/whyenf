@@ -26,7 +26,7 @@ from utils.html import (
 from utils.mfotl_parser import generate_partition_mfotl_files
 
 
-def create_graph(json_file, output_file, filter_polarity=False, merge_strategy=None, mfotl_file=None, sig_file=None, output_dir='partition_output', max_merge_size=None):
+def create_graph(json_file, output_file, filter_polarity=False, merge_strategy=None, mfotl_file=None, sig_file=None, output_dir='partition_output', max_merge_size=None, merge_single_rule_components=True):
     """Create PyVis graph from formula JSON showing causality rules.
     
     Args:
@@ -37,6 +37,8 @@ def create_graph(json_file, output_file, filter_polarity=False, merge_strategy=N
         mfotl_file: Optional path to MFOTL file for generating partition files
         output_dir: Directory where all output files will be saved (default: 'partition_output')
         max_merge_size: Maximum number of partitions to merge together (None for unlimited)
+        merge_single_rule_components: Whether one-rule components can be merged when using
+            merge strategies that allow merging.
     """
     
     if merge_strategy is None:
@@ -88,7 +90,11 @@ def create_graph(json_file, output_file, filter_polarity=False, merge_strategy=N
     
     # Compute backward-reachable partitions and mark source/leaf SCCs
     nontrivial_sccs, node_to_scc_map, partitions, partition_labels, stats, leaf_nodes, source_nodes = compute_backward_partitions(
-        net, node_id_to_label, merge_strategy=merge_strategy, max_merge_size=max_merge_size
+        net,
+        node_id_to_label,
+        merge_strategy=merge_strategy,
+        max_merge_size=max_merge_size,
+        merge_single_rule_components=merge_single_rule_components,
     )
     
     # Save the graph
@@ -163,6 +169,8 @@ if __name__ == "__main__":
                        help='Maximum number of partitions to merge together (default: unlimited). '
                             'If a merge would combine more than this many partitions, they will be '
                             'split into balanced groups.')
+    parser.add_argument('--keep-single-rule-components-separate', action='store_true',
+                       help='Do not merge singleton (one-rule) components when merging partitions.')
     args = parser.parse_args()
     
     create_graph(args.input, args.output, 
@@ -171,4 +179,5 @@ if __name__ == "__main__":
                 mfotl_file=args.mfotl,
                 sig_file=args.sig,
                 output_dir=args.output_dir,
-                max_merge_size=args.max_merge_size)
+                max_merge_size=args.max_merge_size,
+                merge_single_rule_components=not args.keep_single_rule_components_separate)
