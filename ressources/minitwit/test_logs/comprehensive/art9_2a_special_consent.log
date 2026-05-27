@@ -1,9 +1,0 @@
-@1 Collect(1,1,1,"health") PersonalData(1,1) IsSpecialData(1,"health") SpecialConsent(1,"health","health");
-@2 tick();
-@2 Write(1,1,1,"health",1) PersonalData(1,1) IsSpecialData(1,"health");
-@3 tick();
-@3 Revoke(1,"health");
-@4 tick();
-@4 SpecialConsent(1,"health","health");
-@5 tick();
-@5 Read(1,1,1,"health",1) PersonalData(1,1) IsSpecialData(1,"health");

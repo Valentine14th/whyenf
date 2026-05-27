@@ -1,3 +1,0 @@
-@1 Collect(1,1,1,"personalized_ad") PersonalData(1,1) Consent(1,"personalized_ad");
-@2 tick();
-@2 Write(1,1,1,"personalized_ad",1) PersonalData(1,1);

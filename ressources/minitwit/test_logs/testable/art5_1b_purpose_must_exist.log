@@ -1,7 +1,0 @@
-@1 Collect(1,1,1,"service") PersonalData(1,1) Consent(1,"service");
-@2 tick();
-@2 Write(1,1,1,"service",1) PersonalData(1,1);
-@3 tick();
-@3 Collect(2,2,2,"undefined_purpose") PersonalData(2,2) Consent(2,"undefined_purpose");
-@4 tick();
-@4 Write(2,2,2,"service",2) PersonalData(2,2);

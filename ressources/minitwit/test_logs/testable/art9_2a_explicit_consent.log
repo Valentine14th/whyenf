@@ -1,3 +1,0 @@
-@1 Collect(1,1,1,"service") PersonalData(1,1) IsSpecialData(1,"health") SpecialConsent(1,"service","health");
-@2 tick();
-@2 Write(1,1,1,"service",1) PersonalData(1,1) IsSpecialData(1,"health");

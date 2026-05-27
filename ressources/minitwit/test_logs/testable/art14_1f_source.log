@@ -1,3 +1,0 @@
-@1 Write(1,1,1,"service",2) PersonalData(1,2);
-@2 tick();
-@2 Read(1,1,1,"service",2) PersonalData(1,2);
