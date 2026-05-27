@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-Plot step-by-step timing results from partition enforcement.
-Shows runtime per step for each partition in interactive/incremental mode.
+Plot step-by-step timing results from component enforcement.
+Shows runtime per step for each component in interactive/incremental mode.
 """
 
 import argparse
 import json
+import colorsys
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import numpy as np
@@ -79,6 +80,19 @@ def moving_average(data, window_size):
     return smoothed
 
 
+def generate_distinct_colors(n):
+    """Generate n visually distinct colors for component lines."""
+    if n <= 0:
+        return []
+    if n <= 20:
+        cmap = plt.colormaps.get_cmap('tab20')
+        return [cmap(i) for i in range(n)]
+
+    # Fallback for many components: evenly spaced hues in HSV.
+    hues = np.linspace(0.0, 1.0, n, endpoint=False)
+    return [colorsys.hsv_to_rgb(float(h), 0.75, 0.85) for h in hues]
+
+
 def filter_outliers_within_step_runs(step):
     """
     Filter outlier runs within a single step and recalculate statistics.
@@ -121,27 +135,27 @@ def filter_outliers_within_step_runs(step):
     return filtered_stats, num_outliers
 
 
-def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_names: dict = None):
+def plot_step_by_step_timing(json_file: str, output_file: str = None, component_names: dict = None):
     """
     Plot step-by-step timing from enforcement results JSON.
     
     Args:
-        json_file: Path to partition_enforcement_results.json
+        json_file: Path to component_enforcement_results.json
         output_file: Optional path to save the plot (default: show interactive plot)
-        partition_names: Optional dict mapping partition filenames to custom display names
+        component_names: Optional dict mapping component filenames to custom display names
     """
     # Load JSON data
     with open(json_file, 'r') as f:
         data = json.load(f)
     
-    # Extract partition details
+    # Extract component details
     partitions = data.get('partition_details', [])
     
     if not partitions:
-        print("No partition data found in JSON file")
+        print("No component data found in JSON file")
         return
     
-    # Filter partitions that have step-by-step timing
+    # Filter components that have step-by-step timing
     partitions_with_timing = [
         p for p in partitions 
         if p.get('step_by_step_timing') and p['step_by_step_timing'].get('steps')
@@ -160,7 +174,7 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
         print("No step-by-step timing data found")
         return
     
-    print(f"Plotting timing for {len(partitions_with_timing)} partitions" + 
+    print(f"Plotting timing for {len(partitions_with_timing)} components" + 
           (f" + reference" if reference_timing else ""))
     
     # Determine total timepoints to decide whether to suppress per-point markers
@@ -186,8 +200,8 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
     # Create figure
     fig, ax = plt.subplots(figsize=(14, 8))
     
-    # Colors for different partitions
-    colors = plt.cm.tab10(np.linspace(0, 1, len(partitions_with_timing)))
+    # Colors for different components (always distinct).
+    colors = generate_distinct_colors(len(partitions_with_timing))
     
     # Track total times for summary stats
     total_times = []
@@ -195,8 +209,8 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
     # Track outlier run counts
     total_outlier_runs_removed = 0
     
-    # Track partition info for custom legend
-    partition_legend_info = []  # List of (name, color) tuples
+    # Track component info for custom legend
+    component_legend_info = []  # List of (name, color) tuples
     
     # Define marker styles for different block types
     marker_styles = {
@@ -208,42 +222,42 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
                               'facecolor': 'none'}
     }
     
-    # Plot each partition
+    # Plot each component
     for idx, partition in enumerate(partitions_with_timing):
         partition_file = partition['file']
         # Use custom name if provided, otherwise use default naming
-        if partition_names and partition_file in partition_names:
-            partition_name = partition_names[partition_file]
+        if component_names and partition_file in component_names:
+            component_name = component_names[partition_file]
         else:
-            partition_name = partition_file.replace('minitwit_gdpr_4_partition_', 'P').replace('.mfotl', '')
+            component_name = partition_file.replace('minitwit_gdpr_4_partition_', 'C').replace('.mfotl', '')
         
         # Process all steps and filter outlier runs within each step
         original_steps = partition['step_by_step_timing']['steps']
         steps = []
-        partition_outliers_removed = 0
+        component_outliers_removed = 0
         
         for step in original_steps:
             # Filter outliers within this step's runs
             filtered_stats, num_outliers = filter_outliers_within_step_runs(step)
-            partition_outliers_removed += num_outliers
+            component_outliers_removed += num_outliers
             
             # Create updated step with filtered stats
             updated_step = step.copy()
             updated_step['step_time_stats'] = filtered_stats
             steps.append(updated_step)
         
-        if partition_outliers_removed > 0:
-            print(f"  {partition_name}: Filtered {partition_outliers_removed} outlier run(s) across all steps")
-            total_outlier_runs_removed += partition_outliers_removed
+        if component_outliers_removed > 0:
+            print(f"  {component_name}: Filtered {component_outliers_removed} outlier run(s) across all steps")
+            total_outlier_runs_removed += component_outliers_removed
         
         # Skip if no steps available
         if not steps:
-            print(f"  {partition_name}: Warning - no steps found, skipping partition")
+            print(f"  {component_name}: Warning - no steps found, skipping component")
             continue
         
         
-        # Store partition info for custom legend
-        partition_legend_info.append((partition_name, colors[idx]))
+        # Store component info for custom legend
+        component_legend_info.append((component_name, colors[idx]))
         total_time = partition['step_by_step_timing']['total_time_stats']['mean']
         
         total_times.append(total_time)
@@ -295,7 +309,7 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
                 # Only add label for first group to avoid legend clutter
                 label = None
                 if block_key == list(block_groups.keys())[0]:
-                    label = partition_name
+                    label = component_name
                 
                 ax.scatter(group_data['timepoints'], group_data['times'],
                           marker=marker, s=40,
@@ -340,8 +354,9 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
                         linestyle=ls,
                         zorder=1)
                 if has_variance:
-                    times_arr = np.array(grp['times'])
-                    stds_arr = np.array(grp['stds'])
+                    stds_to_plot = moving_average(grp['stds'], SMOOTHING_WINDOW) if should_smooth else grp['stds']
+                    times_arr = np.array(times_to_plot)
+                    stds_arr = np.array(stds_to_plot)
                     ax.fill_between(grp['timepoints'],
                                    times_arr - stds_arr,
                                    times_arr + stds_arr,
@@ -469,13 +484,13 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
     # Calculate average time for summary stats
     avg_total_time = np.mean(total_times) if total_times else 0
     
-    # Check if any partition has multiple runs
+    # Check if any component has multiple runs
     any_multiple_runs = any(p['step_by_step_timing'].get('num_runs', 1) > 1 for p in partitions_with_timing)
     if reference_timing:
         any_multiple_runs = any_multiple_runs or reference_timing.get('num_runs', 1) > 1
     
     # Set x-axis labels with timepoints and timestamps
-    # Get timepoints and timestamps from reference or first partition
+    # Get timepoints and timestamps from reference or first component
     if reference_timing and reference_timing.get('steps'):
         x_data = {s['timepoint']: s.get('timestamp', s['timepoint']) for s in reference_timing['steps']}
     elif partitions_with_timing:
@@ -523,50 +538,67 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
     
     # Formatting
     ax.set_xlabel('Timepoint', fontsize=12, fontweight='bold')
-    ax.set_ylabel('Time (proactive+reactive) [seconds]', fontsize=12, fontweight='bold')
-    title = 'Step-by-Step Enforcement Timing'
-    if any_multiple_runs:
-        title += ' (±1 std dev)'
+    ax.set_ylabel('Time', fontsize=12, fontweight='bold')
+    title = f'Step-by-Step Enforcement Timing ({len(partitions_with_timing)} components)'
     ax.set_title(title, fontsize=14, fontweight='bold')
     ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
+    if any_multiple_runs:
+        ax.text(0.995, 1.01, 'shaded band: ±1 std dev', transform=ax.transAxes,
+                ha='right', va='bottom', fontsize=9, color='dimgray')
     
-    # Create main legend for partitions with custom entries (lines only, no markers)
-    partition_legend_elements = [
+    # Create main legend for components with line-only handles.
+    component_legend_elements = [
         Line2D([0], [0], color=color, linewidth=2, label=name)
-        for name, color in partition_legend_info
+        for name, color in component_legend_info
     ]
     
     # Add reference to legend if it exists
     if reference_timing and reference_timing.get('steps'):
-        partition_legend_elements.append(
-            Line2D([0], [0], color='black', linewidth=2, linestyle='--', label='Reference (full formula)')
+        component_legend_elements.append(
+             Line2D([0], [0], color='black', linewidth=2, linestyle='--', label='Reference (full formula)')
         )
-    
-    main_legend = ax.legend(handles=partition_legend_elements, bbox_to_anchor=(1.05, 1), 
-                           loc='upper left', fontsize=9, title='Partitions')
-    ax.add_artist(main_legend)
-    
-    # Add block type legend below main legend
-    if many_timepoints:
-        block_type_legend_elements = [
-            Line2D([0], [0], color='gray', linestyle='-', linewidth=1.5, label='Reactive'),
-            Line2D([0], [0], color='gray', linestyle=':', linewidth=1.5, label='Proactive'),
-        ]
-        block_type_legend_title = 'Block Types (line style)'
-    else:
-        block_type_legend_elements = [
-            Line2D([0], [0], marker='o', color='gray', linestyle='', markersize=8,
-                   label='Reactive + Action', markerfacecolor='gray'),
-            Line2D([0], [0], marker='o', color='gray', linestyle='', markersize=8,
-                   label='Reactive + No Action', markerfacecolor='none', markeredgewidth=1.5),
-            Line2D([0], [0], marker='s', color='gray', linestyle='', markersize=8,
-                   label='Proactive + Action', markerfacecolor='gray'),
-            Line2D([0], [0], marker='s', color='gray', linestyle='', markersize=8,
-                   label='Proactive + No Action', markerfacecolor='none', markeredgewidth=1.5),
-        ]
-        block_type_legend_title = 'Block Types'
-    ax.legend(handles=block_type_legend_elements, bbox_to_anchor=(1.05, 0.6),
-             loc='upper left', fontsize=8, title=block_type_legend_title, framealpha=0.9)
+
+    # Place both legends below the plot to avoid overlap with data.
+    block_type_legend_elements = [
+        Line2D([0], [0], marker='o', color='gray', linestyle='', markersize=8,
+               label='Reactive + Action', markerfacecolor='gray'),
+        Line2D([0], [0], marker='o', color='gray', linestyle='', markersize=8,
+               label='Reactive + No Action', markerfacecolor='none', markeredgewidth=1.5),
+        Line2D([0], [0], marker='s', color='gray', linestyle='', markersize=8,
+               label='Proactive + Action', markerfacecolor='gray'),
+        Line2D([0], [0], marker='s', color='gray', linestyle='', markersize=8,
+               label='Proactive + No Action', markerfacecolor='none', markeredgewidth=1.5),
+    ]
+    block_type_legend_title = 'Step Types'
+
+    # Pack as many component names as possible per row before wrapping.
+    component_labels = [name for name, _ in component_legend_info]
+    if reference_timing and reference_timing.get('steps'):
+        component_labels.append('Reference (full formula)')
+    max_label_len = max((len(label) for label in component_labels), default=10)
+    # Aggressive horizontal packing: prioritize many entries per row before wrapping.
+    approx_chars_available = 220
+    approx_chars_per_entry = max(8, max_label_len + 3)
+    component_cols_est = max(1, approx_chars_available // approx_chars_per_entry)
+    component_cols = min(len(component_legend_elements), max(6, component_cols_est))
+
+    # Compute a non-bypassable bottom margin from legend row counts.
+    component_rows = max(1, int(np.ceil(len(component_legend_elements) / component_cols)))
+    component_height = 0.028 + 0.032 * component_rows  # title + rows
+    step_types_height = 0.060  # title + one row of 4 markers
+    gap_between_legends = 0.012
+    gap_axis_to_component = 0.014
+    outer_bottom_padding = 0.012
+    component_bottom = outer_bottom_padding + step_types_height + gap_between_legends
+    step_types_bottom = outer_bottom_padding
+    required_bottom = component_bottom + component_height + gap_axis_to_component
+
+    fig.legend(handles=component_legend_elements, loc='lower center',
+               bbox_to_anchor=(0.03, component_bottom, 0.94, component_height), mode='expand', ncol=component_cols,
+               fontsize=9, title='Components', frameon=True)
+    fig.legend(handles=block_type_legend_elements, loc='lower center',
+               bbox_to_anchor=(0.5, step_types_bottom), ncol=len(block_type_legend_elements),
+               fontsize=8, title=block_type_legend_title, frameon=True)
     
     # Check if we should also generate a log scale version
     step_times_all = [s['step_time_stats']['mean'] for p in partitions_with_timing for s in p['step_by_step_timing']['steps']]
@@ -576,6 +608,8 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
     has_large_range = step_times_all and max(step_times_all) / min(step_times_all) > 100
     
     plt.tight_layout()
+    # Enforce bottom padding so legends never overlap x-axis labels.
+    fig.subplots_adjust(bottom=min(max(required_bottom + 0.06, 0.26), 0.65))
     
     # Save or show
     if output_file:
@@ -586,8 +620,9 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
         # If there's a large range, also save log scale version
         if has_large_range:
             ax.set_yscale('log')
-            ax.set_ylabel('Time (proactive+reactive, log scale) [seconds]', fontsize=12, fontweight='bold')
+            ax.set_ylabel('Time (log scale)', fontsize=12, fontweight='bold')
             plt.tight_layout()
+            fig.subplots_adjust(bottom=min(max(required_bottom + 0.06, 0.26), 0.65))
             
             # Generate log scale filename
             from pathlib import Path
@@ -603,11 +638,14 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
     if total_times:
         print(f"Average Total Time (step-by-step): {avg_total_time:.6f}s")
     
-    # Per-partition summary
+    # Per-component summary
     if partitions_with_timing:
-        print("\nPer-Partition Details:")
+        print("\nPer-Component Details:")
         for idx, partition in enumerate(partitions_with_timing):
-            partition_name = partition['file'].replace('minitwit_gdpr_4_partition_', 'P').replace('.mfotl', '')
+            if component_names and partition['file'] in component_names:
+                component_name = component_names[partition['file']]
+            else:
+                component_name = partition['file'].replace('minitwit_gdpr_4_partition_', 'C').replace('.mfotl', '')
             total_time_stats = partition['step_by_step_timing']['total_time_stats']
             total_time = total_time_stats['mean']
             num_steps = partition['step_by_step_timing']['total_steps']
@@ -616,11 +654,11 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
             # Check if multiple runs were performed
             num_runs = partition['step_by_step_timing'].get('num_runs', 1)
             if num_runs > 1:
-                print(f"  {partition_name:8s}: {num_steps:2d} steps | "
+                print(f"  {component_name:8s}: {num_steps:2d} steps | "
                       f"Total: {total_time:.6f}s (±{total_time_stats['std']:.6f}s, {num_runs} runs) | "
                       f"Avg/step: {avg_step:.6f}s")
             else:
-                print(f"  {partition_name:8s}: {num_steps:2d} steps | "
+                print(f"  {component_name:8s}: {num_steps:2d} steps | "
                       f"Total: {total_time:.6f}s | "
                   f"Avg/step: {avg_step:.6f}s")
     
@@ -645,36 +683,36 @@ def plot_step_by_step_timing(json_file: str, output_file: str = None, partition_
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Plot step-by-step timing results from partition enforcement',
+        description='Plot step-by-step timing results from component enforcement',
         formatter_class=argparse.RawTextHelpFormatter
     )
     parser.add_argument('json_file', 
-                       help='Path to partition_enforcement_results.json')
+                       help='Path to component_enforcement_results.json')
     parser.add_argument('-o', '--output', 
                        help='Output file path (PNG, PDF, SVG, etc.). If not specified, shows interactive plot.')
-    parser.add_argument('--partition-names', type=str,
-                       help='JSON file with partition name mappings')
+    parser.add_argument('--component-names', dest='component_names', type=str,
+                       help='JSON file with component name mappings')
     
     args = parser.parse_args()
     
-    # Load partition names if provided
-    partition_names = None
-    if args.partition_names:
-        if not Path(args.partition_names).exists():
-            print(f"Error: Partition names file not found: {args.partition_names}")
+    # Load component names if provided
+    component_names = None
+    if args.component_names:
+        if not Path(args.component_names).exists():
+            print(f"Error: Component names file not found: {args.component_names}")
             return 1
         try:
-            with open(args.partition_names, 'r') as f:
-                partition_names = json.load(f)
+            with open(args.component_names, 'r') as f:
+                component_names = json.load(f)
         except Exception as e:
-            print(f"Error loading partition names: {e}")
+            print(f"Error loading component names: {e}")
             return 1
     
     if not Path(args.json_file).exists():
         print(f"Error: File not found: {args.json_file}")
         return 1
     
-    plot_step_by_step_timing(args.json_file, args.output, partition_names)
+    plot_step_by_step_timing(args.json_file, args.output, component_names)
     return 0
 
 
