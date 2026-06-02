@@ -297,12 +297,28 @@ def expand_rules(rules, let_definitions_dict=None):
     """
     expanded_rules = []
     for rule in rules:
-        # Expand LET definitions in effects and filters, composing polarities
-        expanded_effect, expanded_filter = expand_events(
-            rule['events'], 
-            let_definitions_dict or {}, 
-            set()  # Initialize as empty set, not list
-        )
+        # Expand effects and filters separately because a predicate can appear
+        # in both roles within the same rule with only one annotated event.
+        expanded_effect = []
+        expanded_filter = []
+        for event in rule.get('events', []):
+            if event.get('effect') in ('Sup', 'Cau'):
+                effect_events, _ = expand_events(
+                    [event],
+                    let_definitions_dict or {},
+                    set(),
+                )
+                expanded_effect.extend(effect_events)
+
+            if event.get('polarity', 'Monotonic') != 'Irrelevant':
+                filter_event = dict(event)
+                filter_event['effect'] = None
+                _, filter_events = expand_events(
+                    [filter_event],
+                    let_definitions_dict or {},
+                    set(),
+                )
+                expanded_filter.extend(filter_events)
         
         # Merge events by base name, combining polarities
         merged_effect = merge_events_by_base(expanded_effect, is_effect=True)
