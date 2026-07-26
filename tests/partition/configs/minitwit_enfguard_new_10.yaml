@@ -1,0 +1,44 @@
+# Workflow name (used for logging/output identification)
+name: "minitwit_proactive_gdpr"
+
+# Enfguard binary location (optional, defaults to 'enfguard' in workspace root)
+#enfguard_binary: /home/valentine/ethz/thesis/enfflash/enfguard
+visualization_binary: "/home/valentine/ethz/thesis/whyenf/enfguard"        # For JSON/MFOTL generation
+enforcement_binary: "/home/valentine/ethz/thesis/whyenf/enfguard"  # For partition execution
+
+# Input files
+input:
+  mfotl: "/home/valentine/ethz/thesis/lex/evaluation/02_case_studies/GDPRSocial/policies/minitwit_gdpr.mfotl"
+  signature: "/home/valentine/ethz/thesis/lex/evaluation/02_case_studies/GDPRSocial/policies/minitwit_gdpr.sig"
+  functions: "/home/valentine/ethz/thesis/lex/evaluation/02_case_studies/GDPRSocial/policies/gdpr.py"
+  
+  # Option 1: Run on specific logs (explicit list)
+  logs:
+  #- "/home/valentine/ethz/thesis/whyenf/ressources/minitwit/test_logs/enfflash_test/16_complex_multi_user_scenario.log" 
+  #  - "/home/valentine/ethz/thesis/whyenf/ressources/minitwit/test_logs/manual/art6_1a_consent.log"
+  #  - "/home/valentine/ethz/thesis/whyenf/ressources/minitwit/test_logs/manual/art6_1c_legal_obligation.log"
+  #  - "/home/valentine/ethz/thesis/whyenf/ressources/minitwit/test_logs/manual/art6_1d_vital_interests.log"
+  # Option 2: Process all log files in a directory
+  log_directory: "/home/valentine/ethz/thesis/whyenf/ressources/minitwit/test_logs/enfflash_test"  
+
+# Output configuration
+output:
+  save_normalized_mfotl: false
+  save_json: false
+
+# Visualization & partitioning options
+visualization:
+  enabled: true
+  filter_polarity: true
+  merge_strategy: "by_descendants"
+  max_merge_size: 10
+
+# Partition execution options (running enfguard on each partition)
+partition_execution:
+  enabled: true
+  timeout: 3000 
+  label: true
+  step_by_step: true  
+  repeat_runs: 1
+  filter_log_by_signature: true
+  #partition_source_dir: "/home/valentine/ethz/thesis/whyenf/tests/partition/results/enfflash/mfotl"
