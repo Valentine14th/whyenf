@@ -1,0 +1,18 @@
+@1 Consent("user1","service");
+@2 tick();
+@2 Consent("user2","service");
+@3 tick();
+@3 Collect("post_twit","data1","user1","service") PersonalData("data1","user1");
+@4 tick();
+@4 Write("data1","user1","post_twit","service","user1") PersonalData("data1","user1");
+@5 tick();
+@5 Collect("post_twit","data2","user2","service") PersonalData("data2","user2");
+@6 tick();
+@6 Write("data2","user2","post_twit","service","user2") PersonalData("data2","user2");
+@7 tick();
+@7 Read("data1","user1","view_Twit","service","user2") PersonalData("data1","user1") Collect("view_Twit","data1","user1","service");
+@8 tick();
+@8 RequestAccess("user1","req1");
+@9 tick();
+@9 RequestAccess("user2","req2");
+@10 tick();

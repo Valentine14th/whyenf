@@ -135,7 +135,9 @@ def load_config(config_file):
     
     # construct output dir
     config['output']['directory'] = os.path.join(DEFAULT_OUTPUT_BASE, config['name'])
-    
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    workspace_root = os.path.dirname(os.path.dirname(script_dir))
+
     # Process log configuration (support multiple logs or directory)
     log_files = []
     if 'logs' in config['input'] and config['input']['logs']:
@@ -144,6 +146,8 @@ def load_config(config_file):
     elif 'log_directory' in config['input']:
         # Directory of log files
         log_dir = config['input']['log_directory']
+        if not os.path.isabs(log_dir):
+            log_dir = os.path.join(workspace_root, log_dir)
         if os.path.isdir(log_dir):
             # Find all .log files in the directory
             log_files = sorted([

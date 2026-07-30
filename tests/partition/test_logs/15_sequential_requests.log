@@ -1,0 +1,12 @@
+@1 Consent("user1","service");
+@2 tick();
+@2 Collect("post_twit","data1","user1","service") PersonalData("data1","user1");
+@3 tick();
+@3 Write("data1","user1","post_twit","service","user1") PersonalData("data1","user1");
+@4 tick();
+@4 RequestAccess("user1","req1");
+@5 tick();
+@5 RequestRectification("user1","data1","data1_corrected","req2");
+@6 tick();
+@6 RequestErasure("user1","data1","req3");
+@7 tick();

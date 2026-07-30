@@ -1,0 +1,10 @@
+@1 Consent("user1","personalized_ad");
+@2 tick();
+@2 Collect("view_Twit","data1","user1","personalized_ad") PersonalData("data1","user1");
+@3 tick();
+@3 Read("data1","user1","view_Twit","personalized_ad","user1") PersonalData("data1","user1") Collect("view_Twit","data1","user1","personalized_ad");
+@4 tick();
+@4 Revoke("user1","personalized_ad");
+@5 tick();
+@5 Read("data1","user1","view_Twit","personalized_ad","user1") PersonalData("data1","user1") Collect("view_Twit","data1","user1","personalized_ad");
+@6 tick();

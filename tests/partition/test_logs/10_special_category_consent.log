@@ -1,0 +1,8 @@
+@1 SpecialConsent("user1","health_data","health");
+@2 tick();
+@2 Collect("medical_record","data1","user1","health_data") PersonalData("data1","user1") IsSpecialData("data1","health");
+@3 tick();
+@3 Write("data1","user1","medical_record","health_data","user1") PersonalData("data1","user1") IsSpecialData("data1","health");
+@4 tick();
+@4 Read("data1","user1","view_medical","health_data","user1") PersonalData("data1","user1") Collect("view_medical","data1","user1","health_data") IsSpecialData("data1","health");
+@5 tick();

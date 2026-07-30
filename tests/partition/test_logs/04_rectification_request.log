@@ -1,0 +1,11 @@
+@1 Consent("user1","service");
+@2 tick();
+@2 Collect("edit_User","data1","user1","service") PersonalData("data1","user1");
+@3 tick();
+@3 Write("data1","user1","edit_User","service","user1") PersonalData("data1","user1");
+@4 tick();
+@4 Read("data1","user1","view_User","service","user1") PersonalData("data1","user1") Collect("view_User","data1","user1","service");
+@4 Send("Analytics, Inc.","data1");
+@5 tick();
+@5 RequestRectification("user1","data1","data1_corrected","req1");
+@6 tick();

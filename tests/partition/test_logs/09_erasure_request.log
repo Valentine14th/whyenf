@@ -1,0 +1,11 @@
+@1 Consent("user1","service");
+@2 tick();
+@2 Collect("post_twit","data1","user1","service") PersonalData("data1","user1");
+@3 tick();
+@3 Write("data1","user1","post_twit","service","user1") PersonalData("data1","user1");
+@4 tick();
+@4 Read("data1","user1","view_Twit","service","user1") PersonalData("data1","user1") Collect("view_Twit","data1","user1","service");
+@4 Send("Analytics, Inc.","data1");
+@5 tick();
+@5 RequestErasure("user1","data1","req1");
+@6 tick();

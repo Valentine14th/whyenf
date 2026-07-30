@@ -1,0 +1,18 @@
+@1 Consent("user1","service");
+@2 tick();
+@2 Consent("user1","personalized_ad");
+@3 tick();
+@3 Consent("user1","statistics");
+@4 tick();
+@4 Collect("post_twit","data1","user1","service") PersonalData("data1","user1");
+@5 tick();
+@5 Write("data1","user1","post_twit","service","user1") PersonalData("data1","user1");
+@6 tick();
+@6 Read("data1","user1","view_Twit","personalized_ad","user1") PersonalData("data1","user1") Collect("view_Twit","data1","user1","personalized_ad");
+@7 tick();
+@7 Read("data1","user1","view_Twit","statistics","user1") PersonalData("data1","user1") Collect("view_Twit","data1","user1","statistics");
+@8 tick();
+@8 Revoke("user1","personalized_ad");
+@9 tick();
+@9 Read("data1","user1","view_Twit","statistics","user1") PersonalData("data1","user1") Collect("view_Twit","data1","user1","statistics");
+@10 tick();

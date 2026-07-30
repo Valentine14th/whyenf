@@ -1,0 +1,14 @@
+@1 Consent("user1","personalized_ad");
+@2 tick();
+@2 Collect("view_User","data1","user1","personalized_ad") PersonalData("data1","user1");
+@3 tick();
+@3 Write("data1","user1","edit_User","personalized_ad","user1") PersonalData("data1","user1");
+@4 tick();
+@4 IsRestrictionRequest("req1","data1","personalized_ad");
+@5 tick();
+@5 Read("data1","user1","view_User","personalized_ad","user1") PersonalData("data1","user1") Collect("view_User","data1","user1","personalized_ad");
+@6 tick();
+@6 LiftRestriction("GDPRSocial, Inc.","data1","req1");
+@7 tick();
+@7 Read("data1","user1","view_User","personalized_ad","user1") PersonalData("data1","user1") Collect("view_User","data1","user1","personalized_ad");
+@8 tick();

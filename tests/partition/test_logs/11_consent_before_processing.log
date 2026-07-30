@@ -1,0 +1,8 @@
+@1 Collect("post_twit","data1","user1","service") PersonalData("data1","user1");
+@2 tick();
+@2 Write("data1","user1","post_twit","service","user1") PersonalData("data1","user1");
+@3 tick();
+@3 Consent("user1","service");
+@4 tick();
+@4 Read("data1","user1","view_Twit","service","user1") PersonalData("data1","user1") Collect("view_Twit","data1","user1","service");
+@5 tick();

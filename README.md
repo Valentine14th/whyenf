@@ -59,6 +59,13 @@ You can remove the binary and clean the working directory with
 $ dune clean
 ```
 
+## Splitting & Parallel Enforcement
+
+Large formulas can be split into independent partitions of rules, each enforced separately (and in parallel) instead of running one monolithic `enfguard` process — useful for scaling enforcement on large policies.
+
+- [viz/](viz/README.md) — takes a formula JSON produced by `enfguard` and renders an interactive HTML graph of rule dependencies and partitions.
+- [tests/partition/](tests/partition/README.md) — config-driven workflow that splits a formula into partitions via `viz/`, runs `enfguard` on each one against a set of logs, and compares output/timing against the unpartitioned formula.
+
 ## License
 
 This project and its predecessors WhyEnf and WhyMon are licensed under the GNU Lesser GPL-3.0 license - see [LICENSE](LICENSE) for details.

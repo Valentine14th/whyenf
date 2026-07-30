@@ -1,88 +1,50 @@
 # Partition Enforcement Configuration File
-# This config defines a workflow for partitioning MFOTL formulas and running enforcement
+# Defines a workflow for partitioning MFOTL formulas and running enforcement
 
 # Workflow name (used for logging/output identification)
-name: "minitwit_gdpr_4_test"
+name: "example"
 
-# Enfguard binary configuration (optional)
-# By default, uses 'enfguard' (resolved relative to workspace root)
-# You can specify different binaries for visualization and enforcement
-# visualization_binary: "enfguard"        # For JSON/MFOTL generation
-# enforcement_binary: "enfflash/bin/enfguard.exe"  # For partition execution
+# Enfguard binaries (optional, default: 'enfguard' relative to workspace root)
+# visualization_binary: "enfguard"                 # for JSON/MFOTL generation
+# enforcement_binary: "enfflash/bin/enfguard.exe"  # for partition execution
+# enfguard_binary: "enfguard"                      # legacy: sets both at once
 
 # Input files
 input:
-  # MFOTL formula file
-  mfotl: "ressources/minitwit/minitwit_gdpr_4.mfotl"
-  
-  # Signature file (defines predicates and their types)
-  signature: "ressources/minitwit/minitwit_gdpr.sig"
-  
-  # Log files for enforcement execution (two options):
-  
-  # Option 1: Multiple log files (explicit list)
-  logs:
-    - "ressources/minitwit/log1.txt"
-    - "ressources/minitwit/log2.txt"
-    - "ressources/minitwit/log3.txt"
-  
-  # Option 2: Directory containing log files (all .log files will be processed)
-  # log_directory: "ressources/minitwit/test_logs/"
-  
-  # Functions file for enforcement execution
-  functions: "ressources/minitwit/func.txt"
+  mfotl: "tests/partition/test_formulas/minitwit_gdpr.mfotl"  # formula file
+  signature: "tests/partition/test_formulas/minitwit_gdpr.sig"  # signature file
+  functions: "tests/partition/test_formulas/gdpr.py"           # functions file
+
+  # Logs for enforcement: explicit list, or a directory of .log files (pick one)
+  # logs:
+  #   - "tests/partition/test_logs/01_access_request.log"
+  #   - "tests/partition/test_logs/02_portability_request.log"
+  log_directory: "tests/partition/test_logs/"
 
 # Output configuration
-# Output configuration
-# Note: Output directory is automatically set to tests/partition/results/<workflow_name>/
-# When multiple logs are specified, results for each log will be in subdirectories:
-#   tests/partition/results/<workflow_name>/log_<log_basename>/
-#     ├── partition_outputs/  (enforcement outputs and diffs)
-#     ├── plots/              (timing and statistics plots)
-#     └── enforcement_results.json
+# Written to tests/partition/results/<name>/, with a log_<basename>/ subdir per log
 output:
-  # Whether to save the intermediate JSON file (generated from MFOTL)
-  save_json: true
-  
-  # Whether to save normalized MFOTL file (pretty-printed version)
-  save_normalized_mfotl: false
+  save_json: true             # keep intermediate JSON generated from MFOTL
+  save_normalized_mfotl: false  # save pretty-printed normalized MFOTL
 
 # Visualization & partitioning options
 visualization:
-  # Enable/disable graph generation and partitioning
-  enabled: true
-  
-  # Filter out polarity edges (CauByCau+monotonic, CauBySup+antimonotonic)
-  filter_polarity: false
-  
-  # Partition merging strategy
-  # Options: "by_descendants" | "no_merge"
-  merge_strategy: "by_descendants"
-  
-  # Maximum number of partitions to merge together, balanced split if over (optional)
-  max_merge_size: null
+  enabled: true                     # generate graph and partitions
+  filter_polarity: false            # drop polarity edges (CauByCau/CauBySup)
+  merge_strategy: "by_descendants"  # "by_descendants" | "no_merge"
+  max_merge_size: null              # cap partitions merged together (null = unlimited)
+  merge_single_rule_components: true  # allow single-rule components to merge
 
 # Partition execution options (running enfguard on each partition)
 partition_execution:
-  # Enable/disable running enfguard on partitions
-  enabled: true
-  
-  # Optional: Timeout in seconds for each partition (or per step if step_by_step is true)
-  # If a partition takes longer than this, it will be killed
-  timeout: 300
-  
-  # Directory containing partition MFOTL files (auto-set from output.directory/mfotl)
-  # Leave null to use default: {output.directory}/mfotl
-  partition_dir: null
-  
-  # Enable label output to show which rules caused actions
-  label: false
-  
-  # Enable step-by-step execution mode: ingest log file one timestamp at a time 
-  # and measure enforcement time per step (generates timing plot automatically)
-  step_by_step: false
-  
-  # Force using per-partition signatures insetad of full one
-  # use_per_partition_signatures: false
+  enabled: true       # run enfguard on partitions
+  timeout: 300         # seconds per partition (or per step) before killing it
+  partition_dir: null  # dir with partition .mfotl files (default: <output_dir>/mfotl)
+  # partition_source_dir: "existing_output/mfotl"  # use pre-generated partitions instead of visualizing
+  label: false          # show which rules caused each action
+  step_by_step: true   # ingest one timestamp at a time, plot per-step timing
+  repeat_runs: 1         # repeat each partition run N times for timing
+  filter_log_by_signature: false    # filter log/signature per partition
+  use_per_partition_signatures: false  # use each partition's own signature
 
-# Note: Paths are relative to workspace root unless absolute
+# Note: paths are relative to workspace root unless absolute
